@@ -1,4 +1,5 @@
 'use strict';
+import * as C from './combat.js';
 /* ---------- Helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -69,21 +70,23 @@ const KEY = 'kusog_v1';
 const DEF = {settings: {kcal: 1800, protein: 140, start: 125, goal: 100, budget: 9200}, days: {}, weights: [], grocery: {week: '', checked: {}}, spend: [], badges: {}, lastLevel: null,
   plan: {breakfast: BREAKFAST, snack: SNACK, rot: ROT}, foods: [], exercises: EX_DEF, routines: ROUT_DEF, workouts: [], session: null,
   groc: GROC.map((g, i) => ({id: 'g' + i, n: g[0], a: g[1], c: g[2]})),
-  game: {coins: 0, xpBanked: null, idx: 0, best: 0, farm: false, retryAt: 0, victory: false, finalWins: 0, prestige: 0, kills: 0, lastTick: 0, beaten: {},
-    up: {blade: 0, shield: 0, thrusters: 0, magnet: 0},
-    owned: {suit_cyan: 1, head_none: 1, aura_none: 1, back_none: 1, weapon_blade: 1},
-    eq: {suit: 'cyan', head: 'none', aura: 'none', back: 'none', weapon: 'blade'}}};
-function merge(d) {
-  const g = d.game || {};
-  return Object.assign(clone(DEF), d, {
-    settings: Object.assign(clone(DEF.settings), d.settings || {}),
-    game: Object.assign(clone(DEF.game), g, {
-      up: Object.assign(clone(DEF.game.up), g.up || {}),
-      owned: Object.assign(clone(DEF.game.owned), g.owned || {}),
-      eq: Object.assign(clone(DEF.game.eq), g.eq || {})})
-  });
-}
+  rpg: null};
 const clone = o => JSON.parse(JSON.stringify(o));
+function newRpg() {
+  const w = C.makeItem('w1', Math.random, 'common'), a = C.makeItem('a1', Math.random, 'common'), h = C.makeItem('h1', Math.random, 'common');
+  return {pp: 0, xpBanked: null, stats: {str: 5, vit: 5, agi: 5, dex: 5}, stage: 1, wounded: false, victory: false, ng: 0, finalWins: 0, wins: 0, losses: 0,
+    mats: {stone: 2, blessed: 0, guard: 0}, inv: [w, a, h], eq: {weapon: w.uid, armor: a.uid, helm: h.uid},
+    ward: {owned: {suit_cyan: 1, aura_none: 1, back_none: 1}, eq: {suit: 'cyan', aura: 'none', back: 'none'}}};
+}
+function merge(d) {
+  const base = newRpg(), r = d.rpg;
+  const rpg = r ? Object.assign(base, r, {
+    stats: Object.assign(base.stats, r.stats || {}), mats: Object.assign(base.mats, r.mats || {}),
+    ward: {owned: Object.assign(base.ward.owned, (r.ward || {}).owned || {}), eq: Object.assign(base.ward.eq, (r.ward || {}).eq || {})}
+  }) : base;
+  return Object.assign(clone(DEF), d, {settings: Object.assign(clone(DEF.settings), d.settings || {}), rpg});
+}
+
 function load() {
   try {
     const raw = localStorage.getItem(KEY);
@@ -92,7 +95,7 @@ function load() {
       return merge(d);
     }
   } catch (e) {}
-  return clone(DEF);
+  return merge({});
 }
 let S = load();
 function save() {
@@ -189,9 +192,14 @@ function rewards(beforeLevel) {
   for (const b of BADGES) {
     if (!S.badges[b.id] && a[b.key] >= needOf(b)) { S.badges[b.id] = keyOf(today()); msgs.push(`${b.ic} Badge unlocked: ${b.n}`); }
   }
-  const G = S.game, first = G.xpBanked === null;
-  if (first) G.xpBanked = 0;
-  if (a.xp > G.xpBanked) { const c = (a.xp - G.xpBanked) * COINS_PER_XP; G.coins += c; G.xpBanked = a.xp; if (first && c > 0) msgs.unshift(`${COIN} +${fmt(c)} coins for your hero from the XP you’ve earned`); }
+  const R = S.rpg, first = R.xpBanked === null;
+  if (first) R.xpBanked = 0;
+  if (a.xp > R.xpBanked) {
+    const gain = (a.xp - R.xpBanked) * PP_PER_XP;
+    R.pp += gain; R.xpBanked = a.xp;
+    if (R.wounded) { R.wounded = false; if (!first) msgs.push('💚 Your hero is healed and ready to engage again'); }
+    if (first && gain > 0) msgs.unshift(`✦ ${fmt(gain)} progress points for your hero from the XP you’ve earned`);
+  }
   S.lastLevel = L;
   save();
   msgs.forEach((m, i) => setTimeout(() => toast(m), 900 + i * 2600));
@@ -231,7 +239,7 @@ function hero() {
   return `<header class="hero">
     <div class="hero-top">
       <div><h1>Level ${L}</h1><div class="rank">${rankOf(L)}</div></div>
-      <div class="hero-pills"><div class="streak">${a.streak ? `🔥 ${a.streak}-day streak` : 'Start a streak today'}</div><button class="coinpill" data-tab="hero">${COIN} ${short(S.game.coins)}</button></div>
+      <div class="hero-pills"><div class="streak">${a.streak ? `🔥 ${a.streak}-day streak` : 'Start a streak today'}</div><button class="coinpill" data-tab="hero">✦ ${short(S.rpg.pp)} PP <span class="sep"></span> Stage ${S.rpg.stage}</button></div>
     </div>
     <div class="xp"><div class="xp-bar"><i style="width:${((a.xp - lo) / (hi - lo) * 100).toFixed(1)}%"></i></div>
       <small><span>${fmt(a.xp)} XP</span><span>${fmt(hi - a.xp)} XP to level ${L + 1}</span></small></div>
@@ -416,7 +424,7 @@ function vBadges() {
       ${on ? `<small>Unlocked ${niceDate(fromKey(S.badges[b.id]))}</small>` : `<div class="pbar"><i style="width:${(cur / need * 100).toFixed(0)}%"></i></div><small class="num">${fmt(cur, b.key === 'lost' ? 1 : 0)} / ${fmt(need, b.key === 'lost' ? 1 : 0)}</small>`}</div>`;
   }).join('')}</div>
   <h2>How XP works</h2>
-  <div class="panel small">Each meal you log: +10. Protein within 10 g of target: +30. Calories within 150 of target: +30. Walk: +20. Strength session: +20. 8 glasses of water: +10. Perfect day (all 4 meals, both targets, walk and water): +25 bonus. Weekly weigh-in: +25. Each exercise where you beat your best set: +10. Every XP point also gives your hero 10 coins. Your streak counts days where you hit both calories and protein. Eating far below target doesn’t earn calorie XP, because under-eating slows recovery.</div>`;
+  <div class="panel small">Each meal you log: +10. Protein within 10 g of target: +30. Calories within 150 of target: +30. Walk: +20. Strength session: +20. 8 glasses of water: +10. Perfect day (all 4 meals, both targets, walk and water): +25 bonus. Weekly weigh-in: +25. Each exercise where you beat your best set: +10. Every XP point also gives your hero 1 progress point (PP). Your streak counts days where you hit both calories and protein. Eating far below target doesn’t earn calorie XP, because under-eating slows recovery.</div>`;
 }
 
 /* ---------- Train ---------- */
@@ -562,98 +570,68 @@ function render() {
   const open = [...document.querySelectorAll('details[open]')].map(d => d.id);
   $('#app').innerHTML = VIEWS[tab]();
   open.forEach(id => { const el = document.getElementById(id); if (el) el.open = true; });
-  if (tab === 'hero') mountArena(); else if (arena) arena.unmount();
+  if (tab === 'hero') mountArena(); else { if (fight) skipFight(); if (arena) arena.unmount(); }
   document.querySelectorAll('.tabs button').forEach(b => { if (b.dataset.tab === tab) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
 }
 
-/* ---------- Hero game ---------- */
-const COIN = '◈', COINS_PER_XP = 10;
+/* ---------- Hero RPG ---------- */
+const PP_PER_XP = 1;
 const short = n => {
   n = Math.max(0, n);
-  if (n < 1000) return String(Math.round(n));
-  const u = ['K', 'M', 'B', 'T', 'Qa', 'Qi']; let i = -1;
+  if (n < 10000) return fmt(Math.round(n));
+  const u = ['K', 'M', 'B', 'T']; let i = -1;
   while (n >= 1000 && i < u.length - 1) { n /= 1000; i++; }
   return (n < 10 ? n.toFixed(2) : n < 100 ? n.toFixed(1) : Math.round(n)) + u[i];
 };
-const ZONES = [
-  {n: 'Soda Swamp', c: 0x35f0c0, m: [['Fizz Drone', 'drone'], ['Syrup Slime', 'slime']], boss: ['Sugar Sovereign', 'slime']},
-  {n: 'Fryer Factory', c: 0xffb547, m: [['Grease Bot', 'bot'], ['Oil Spitter', 'drone']], boss: ['Deep-Fry Colossus', 'golem']},
-  {n: 'Midnight Mall', c: 0xb07cff, m: [['Snack Wraith', 'wraith'], ['Cart Phantom', 'bot']], boss: ['Milk Tea Empress', 'wraith']},
-  {n: 'Couch Citadel', c: 0x5aa8ff, m: [['Remote Drone', 'drone'], ['Scroll Specter', 'wraith']], boss: ['Couch Titan', 'golem']},
-  {n: 'Craving Core', c: 0xff3d6e, m: [['Craving Shade', 'wraith'], ['Excuse Golem', 'golem']], boss: ['Lord Cravings', 'overlord']}
-];
-const UPS = [
-  {id: 'blade', n: 'Plasma core', d: '+22% attack per level', base: 20},
-  {id: 'shield', n: 'Shield cells', d: '+22% max HP per level', base: 20},
-  {id: 'thrusters', n: 'Thrusters', d: '+8% attack speed per level', base: 40},
-  {id: 'magnet', n: 'Coin magnet', d: '+12% coins from battles per level', base: 50}
-];
-const upCost = (u, lv) => Math.round(u.base * 1.42 ** lv);
-const COSM = {
+const WARD = {
   suit: [
     {id: 'cyan', n: 'Cyan core', body: 0x2c4470, glow: 0x2ee6f0, cost: 0},
-    {id: 'magenta', n: 'Magenta pulse', body: 0x4a2860, glow: 0xff3da8, cost: 1000},
-    {id: 'mango', n: 'Mango flux', body: 0x4e3a1c, glow: 0xffb547, cost: 2500},
-    {id: 'gold', n: 'Solar gold', body: 0x8a6a1a, glow: 0xfff1a0, cost: 6000},
-    {id: 'shadow', n: 'Shadow ops', body: 0x1c2030, glow: 0x8a7dff, cost: 12000},
-    {id: 'summit', n: 'Summit armor', body: 0xdfe8f2, glow: 0x2ee6f0, cost: 0, req: 'goal'}
+    {id: 'magenta', n: 'Magenta pulse', body: 0x4a2860, glow: 0xff3da8, cost: 150},
+    {id: 'mango', n: 'Mango flux', body: 0x4e3a1c, glow: 0xffb547, cost: 250},
+    {id: 'gold', n: 'Solar gold', body: 0x8a6a1a, glow: 0xfff1a0, cost: 400},
+    {id: 'shadow', n: 'Shadow ops', body: 0x1c2030, glow: 0x8a7dff, cost: 600},
+    {id: 'summit', n: 'Summit white', body: 0xdfe8f2, glow: 0x2ee6f0, cost: 0, req: 'goal'}
   ],
-  head: [
-    {id: 'none', n: 'No headgear', cost: 0}, {id: 'visor', n: 'Neon visor', cost: 1500},
-    {id: 'helmet', n: 'Battle helmet', cost: 5000}, {id: 'halo', n: 'Champion halo', cost: 0, req: 'final'}
-  ],
-  aura: [{id: 'none', n: 'No aura', cost: 0}, {id: 'ring', n: 'Neon ring', cost: 2000}, {id: 'sparks', n: 'Spark field', cost: 8000}],
-  back: [{id: 'none', n: 'Nothing', cost: 0}, {id: 'jetpack', n: 'Jetpack', cost: 4000}, {id: 'cape', n: 'Energy cape', cost: 7000}],
-  weapon: [{id: 'blade', n: 'Energy blade', cost: 0}, {id: 'kettlebell', n: 'Plasma kettlebell', cost: 3000}, {id: 'hammer', n: 'Thunder hammer', cost: 15000}]
+  aura: [{id: 'none', n: 'No aura', cost: 0}, {id: 'ring', n: 'Neon ring', cost: 200}, {id: 'sparks', n: 'Spark field', cost: 500}, {id: 'champ', n: 'Champion sparks', cost: 0, req: 'final'}],
+  back: [{id: 'none', n: 'Nothing', cost: 0}, {id: 'jetpack', n: 'Jetpack', cost: 300}, {id: 'cape', n: 'Energy cape', cost: 450}]
 };
-const SLOTNAMES = {suit: 'Suit', head: 'Head', aura: 'Aura', back: 'Back', weapon: 'Weapon'};
+const WARD_NAMES = {suit: 'Suit color', aura: 'Aura', back: 'Back'};
 const FORMS = ['Recruit', 'Runner', 'Fighter', 'Vanguard', 'Titan', 'Legend'];
-const reqMet = (r, a) => r === 'goal' ? a.lost >= Math.max(.1, S.settings.start - S.settings.goal) : S.game.finalWins > 0;
+const reqMet = (r, a) => r === 'goal' ? a.lost >= Math.max(.1, S.settings.start - S.settings.goal) : S.rpg.finalWins > 0;
 const reqText = r => r === 'goal' ? 'Reach your goal weight to unlock' : 'Beat Lord Cravings to unlock';
-let armSlot = 'suit', previewSt = null, previewUntil = 0;
+let wardSlot = 'suit', previewSt = null, previewUntil = 0, refineSlot = null, refineOpts = {blessed: false, guard: false}, lastRefine = '';
 let aggCache = null, aggAt = 0;
 const aggC = () => { if (!aggCache || Date.now() - aggAt > 1500) { aggCache = agg(); aggAt = Date.now(); } return aggCache; };
 
-function heroStats(a) {
-  const up = S.game.up, pm = 2 ** S.game.prestige, disc = 1 + Math.min(1.5, a.streak * .1);
-  return {
-    atk: (10 + 3 * a.workouts + 8 * a.prs + a.proteinDays) * 1.22 ** up.blade * disc * pm,
-    hp: (120 + 5 * a.proteinDays + 10 * a.perfect + 8 * a.lost + 4 * a.weighIns) * 1.22 ** up.shield * pm,
-    spd: Math.min(6, Math.min(3, 1 + a.walks * .03) * 1.08 ** up.thrusters), disc, gold: 1.12 ** up.magnet
-  };
-}
-function enemyDef(i) {
-  const z = Math.floor(i / 10), w = i % 10 + 1, Z = ZONES[z], boss = w === 10, final = i === 49, pr = S.game.prestige;
-  const [name, type] = boss ? Z.boss : Z.m[w % 2];
-  let hp = 30 * 1.2 ** i, atk = 3 * 1.15 ** i, reward = 1.22 ** i;
-  if (boss) { hp *= 4; atk *= 1.5; reward *= 10; }
-  if (final) { hp *= 4; atk *= 1.4; reward *= 5; }
-  hp *= 3 ** pr; atk *= 3 ** pr; reward *= 2.5 ** pr;
-  return {i, z: z + 1, w, name, type, color: Z.c, boss, final, hp, atk, reward};
-}
-const shieldOn = (d, a) => d.final && !(a.streak >= 7 || a.lost >= 10);
-function canWin(d, hs, a) { return d.hp / (hs.atk * hs.spd * (shieldOn(d, a) ? .1 : 1)) < hs.hp / (d.atk * .8); }
+const itemBy = uid => S.rpg.inv.find(i => i.uid === uid);
+const equipped = () => Object.keys(C.SLOTS).map(sl => itemBy(S.rpg.eq[sl])).filter(Boolean);
+const heroNow = () => C.heroDerived(S.rpg.stats, equipped());
+const enemyNow = () => C.enemyFor(S.rpg.stage, S.rpg.ng);
+
 function heroCfg(a) {
   const st = S.settings, span = Math.max(.1, st.start - st.goal), pv = previewSt !== null && Date.now() < previewUntil;
   const p = pv ? previewSt / 5 : Math.min(1, Math.max(0, a.lost / span));
-  const suit = COSM.suit.find(x => x.id === S.game.eq.suit) || COSM.suit[0];
-  const mu = Math.min(1, a.workouts * .02 + a.prs * .04 + (pv ? p * .6 : 0));
+  const R = S.rpg, suit = WARD.suit.find(x => x.id === R.ward.eq.suit) || WARD.suit[0];
+  const trained = (R.stats.str + R.stats.vit + R.stats.agi + R.stats.dex - 20) / 160;
+  const mu = Math.min(1, a.workouts * .015 + a.prs * .03 + trained * .5 + (pv ? p * .5 : 0));
+  const w = itemBy(R.eq.weapon), h = itemBy(R.eq.helm);
   return {fat: Math.round((1 - p) * 50) / 50, muscle: Math.round(mu * 20) / 20, stage: Math.min(5, Math.floor(p * 5 + 1e-9)),
-    body: suit.body, glow: suit.glow, head: S.game.eq.head, aura: S.game.eq.aura, back: S.game.eq.back, weapon: S.game.eq.weapon};
+    body: suit.body, glow: suit.glow, head: h ? C.BASES[h.base].model : 'none', aura: R.ward.eq.aura === 'champ' ? 'sparks' : R.ward.eq.aura,
+    back: R.ward.eq.back, weapon: w ? C.BASES[w.base].model : 'blade'};
 }
 
-let B = {phase: 'spawn', timer: .5, ehp: 0, emax: 1, hhp: 1, hmax: 1, ta: 0, te: 0, def: null, key: 0};
-let arena = null, arenaP = null, saveT = 0, tickN = 0;
+let arena = null, arenaP = null, fight = null, fightLog = [];
 const live = () => tab === 'hero' && arena && arena.mounted && !document.hidden;
-const sceneDef = () => B.def ? {key: B.def.i + '-' + B.key, type: B.def.type, color: B.def.color, boss: B.def.boss, final: B.def.final} : null;
+const sceneEnemy = e => ({key: `${e.stage}-${S.rpg.ng}`, type: e.type, color: e.color, boss: e.boss, final: e.final});
 function mountArena() {
   const el = $('#stage3d'); if (!el) return;
   if (!arenaP) arenaP = import('./scene.js').then(m => (arena = new m.Arena()));
   arenaP.then(ar => {
     if (tab !== 'hero') return; const el2 = $('#stage3d'); if (!el2) return;
     ar.mount(el2); ar.setHero(heroCfg(aggC()));
-    if (B.def && B.phase === 'fight') { ar.setEnemy(sceneDef()); ar.setShield(shieldOn(B.def, aggC())); }
-  }).catch(() => { arenaP = null; el.innerHTML = '<p class="muted small" style="padding:16px">The 3D view isn’t available on this device. Your battle still runs and earns coins.</p>'; });
+    if (!fight) { ar.setEnemy(S.rpg.victory ? null : sceneEnemy(enemyNow())); ar.resetPose(); if (S.rpg.wounded) ar.heroFall(); }
+    hud();
+  }).catch(() => { arenaP = null; el.innerHTML = '<p class="muted small" style="padding:16px">The 3D view isn’t available on this device. Battles still work.</p>'; });
 }
 function floater(txt, cls, who) {
   if (!live()) return; const p = arena.screenPos(who), box = $('#floaters'); if (!p || !box) return;
@@ -661,152 +639,201 @@ function floater(txt, cls, who) {
   el.style.left = (p.x + Math.random() * 30 - 15) + 'px'; el.style.top = p.y + 'px';
   box.appendChild(el); setTimeout(() => el.remove(), 950);
 }
-function offline(ms) {
-  const sec = Math.min(8 * 3600, ms / 1000); if (sec < 15) return;
-  const a = aggC(), hs = heroStats(a); let j = S.game.idx, d = null;
-  while (j >= 0 && !canWin(d = enemyDef(j), hs, a)) j--;
-  if (j < 0) return;
-  const tKill = d.hp / (hs.atk * hs.spd * (shieldOn(d, a) ? .1 : 1));
-  const earned = Math.floor(d.reward * hs.gold / (tKill + .8) * sec * .25);
-  if (earned > 0) { S.game.coins += earned; setTimeout(() => toast(`While you were away, your hero earned ${COIN} ${short(earned)}`), 600); }
-}
-function kill(d, hs) {
-  const G = S.game, c = Math.max(1, Math.round(d.reward * hs.gold));
-  G.coins += c; G.kills++;
-  if (live()) { arena.enemyDie(); floater(`+${short(c)} ${COIN}`, 'coin', 'enemy'); }
-  if (d.boss) G.beaten[d.i] = (G.beaten[d.i] || 0) + 1;
-  if (d.final && !G.victory) {
-    G.finalWins++; G.victory = true; G.farm = true; G.retryAt = 9e15; G.idx = 48;
-    toast('🏆 Lord Cravings defeated! You saved the island.'); if (tab === 'hero') setTimeout(rerender, 400);
-  } else if (G.farm) {
-    if (Date.now() >= G.retryAt && !G.victory) { G.farm = false; G.idx = Math.min(49, G.idx + 1); }
-  } else {
-    if (d.boss && live()) toast(`👑 ${d.name} defeated!`);
-    G.idx = Math.min(49, G.idx + 1);
-  }
-  G.best = Math.max(G.best, G.idx);
-  B.phase = 'spawn'; B.timer = .8;
-}
-function lose() {
-  const G = S.game;
-  if (live()) toast(G.idx > 0 ? 'Defeated. Falling back a wave to farm coins and power up.' : 'Defeated. Upgrade or log your habits to get stronger.');
-  if (G.idx > 0) G.idx--;
-  G.farm = true; G.retryAt = Date.now() + 45000; B.phase = 'spawn'; B.timer = 1.4; B.hhp = B.hmax;
-  if (live()) arena.setEnemy(null);
-}
-function statusText() {
-  const G = S.game;
-  if (G.victory) return 'You beat the final boss! Start New Game+ for a tougher, richer run.';
-  if (G.farm) { const s = Math.max(0, Math.ceil((G.retryAt - Date.now()) / 1000)); return `Farming coins on this wave. Next push in ${s}s.`; }
-  return S.game.idx === 49 ? 'Final battle in progress.' : 'Pushing forward. Your hero fights on its own, even when the app is closed.';
-}
-function hud(a, hs) {
+function hud() {
   const set = (id, v) => { const e = document.getElementById(id); if (e && e.textContent !== v) e.textContent = v; };
   const w = (id, p) => { const e = document.getElementById(id); if (e) e.style.width = Math.max(0, Math.min(100, p)).toFixed(1) + '%'; };
-  const G = S.game, di = enemyDef(G.idx);
-  set('hCoins', `${COIN} ${short(G.coins)}`);
-  set('hZone', `Zone ${di.z}: ${ZONES[di.z - 1].n}`);
-  set('hWave', di.final ? 'Final boss' : di.boss ? 'Wave 10/10, boss' : `Wave ${di.w}/10`);
-  if (B.def && B.phase === 'fight') { set('eName', B.def.name); set('eHpTxt', short(B.ehp)); w('eHp', B.ehp / B.emax * 100); }
-  else { set('eName', 'Next enemy incoming'); set('eHpTxt', ''); w('eHp', 0); }
-  set('hHpTxt', `${short(B.hhp)} / ${short(B.hmax)}`); w('hHp', B.hhp / B.hmax * 100);
-  set('aStatus', statusText());
-  document.querySelectorAll('[data-cost]').forEach(b => { b.disabled = G.coins < +b.dataset.cost; });
-}
-function gameTick() {
-  const G = S.game, now = Date.now();
-  if (G.lastTick && now - G.lastTick > 15000) offline(now - G.lastTick);
-  G.lastTick = now;
-  const dt = .1, a = aggC(), hs = heroStats(a);
-  if (B.phase === 'spawn') {
-    B.timer -= dt;
-    if (B.timer <= 0) {
-      const d = B.def = enemyDef(G.idx); B.key++;
-      B.ehp = B.emax = d.hp; B.hmax = B.hhp = hs.hp; B.ta = 0; B.te = -.6; B.phase = 'fight';
-      if (live()) { arena.setEnemy(sceneDef()); arena.setShield(shieldOn(d, a)); }
-    }
-  } else {
-    const d = B.def, sh = shieldOn(d, a);
-    if (hs.hp > B.hmax) B.hhp += hs.hp - B.hmax;
-    B.hmax = hs.hp; B.hhp = Math.min(B.hhp, B.hmax);
-    B.ta += dt; const per = 1 / hs.spd;
-    while (B.ta >= per && B.phase === 'fight') {
-      B.ta -= per; const crit = Math.random() < .1, dmg = hs.atk * (crit ? 2 : 1) * (sh ? .1 : 1);
-      B.ehp -= dmg;
-      if (live()) { arena.heroAttack(); arena.enemyHit(crit); floater((crit ? 'CRIT ' : '') + short(dmg), crit ? 'crit' : 'dmg', 'enemy'); }
-      if (B.ehp <= 0) kill(d, hs);
-    }
-    if (B.phase === 'fight') {
-      B.te += dt;
-      if (B.te >= 1.25) {
-        B.te -= 1.25; B.hhp -= d.atk;
-        if (live()) { arena.enemyAttack(); setTimeout(() => { if (live()) arena.heroHit(); }, 150); floater('-' + short(d.atk), 'hurt', 'hero'); }
-        if (B.hhp <= 0) lose();
-      }
-    }
-  }
-  if (tab === 'hero') {
-    hud(a, hs);
-    if (++tickN % 10 === 0 && live()) arena.setHero(heroCfg(a));
-  }
-  if (now - saveT > 5000) { saveT = now; save(); }
+  const R = S.rpg, e = fight ? fight.e : enemyNow(), h = fight ? fight.h : heroNow();
+  set('hPP', `✦ ${short(R.pp)} PP`);
+  set('hZone', R.victory ? 'Island saved' : `Zone ${e.z}: ${C.ZONES[e.z - 1].n}`);
+  set('hWave', R.victory ? 'Final boss defeated' : e.final ? 'Stage 50, final boss' : `Stage ${e.stage}${e.boss ? ', zone boss' : ''}`);
+  const ehp = fight ? fight.ehp : e.hp, hhp = fight ? fight.hhp : (R.wounded ? 0 : h.hp);
+  set('eName', R.victory ? '' : e.name); set('eHpTxt', R.victory ? '' : short(ehp)); w('eHp', R.victory ? 0 : ehp / e.hp * 100);
+  set('hHpTxt', `${short(hhp)} / ${short(h.hp)}`); w('hHp', hhp / h.hp * 100);
+  const lg = document.getElementById('fightLog');
+  if (lg) lg.innerHTML = fightLog.slice(-5).map(l => `<li class="${l.c || ''}">${l.t}</li>`).join('');
 }
 
+/* ----- Fight playback ----- */
+function engage() {
+  const R = S.rpg;
+  if (fight) return;
+  if (R.victory) { toast('You already beat Lord Cravings. Start New Game+ for a new run.'); return; }
+  if (R.wounded) { toast('Your hero is wounded. Log any part of your routine to heal.'); return; }
+  if (!arena || !arena.mounted) { toast('Open the Hero tab to fight.'); return; }
+  const h = heroNow(), e = enemyNow(), res = C.simulate(h, e);
+  fight = {h, e, res, i: 0, hhp: h.hp, ehp: e.hp};
+  const n = res.events.length;
+  fight.dur = n <= 14 ? 1.05 : Math.max(.45, 14.7 / n);
+  fightLog = [{t: `⚔️ Stage ${e.stage}: you engage ${e.name}.`, c: 'sys'}];
+  arena.setHero(heroCfg(aggC())); arena.resetPose(); arena.setEnemy(sceneEnemy(e));
+  rerender();
+  setTimeout(nextEvent, 500);
+}
+function nextEvent() {
+  const f = fight; if (!f) return;
+  if (!live()) { finishFight(); return; }
+  if (f.i >= f.res.events.length) { setTimeout(finishFight, 300); return; }
+  const ev = f.res.events[f.i++], e = f.e, h = f.h, ms = f.dur * 1000;
+  if (ev.t === 'dbl') { fightLog.push({t: '⚡ Double strike!', c: 'good'}); hud(); setTimeout(nextEvent, 120); return; }
+  if (ev.t === 'h') {
+    arena.heroSlash(ev.res, f.dur * .9, () => {
+      if (ev.res === 'miss') { floater('MISS', 'miss', 'enemy'); fightLog.push({t: `🎲 ${ev.roll} + ${h.hit} vs AC ${e.ac}: ${e.name} evades your slash`}); }
+      else {
+        f.ehp = ev.ehp; floater((ev.res === 'crit' ? 'CRIT ' : '') + short(ev.dmg), ev.res === 'crit' ? 'crit' : 'dmg', 'enemy');
+        fightLog.push({t: ev.res === 'crit' ? `🎲 ${ev.roll}: critical slash for ${short(ev.dmg)}!` : `🎲 ${ev.roll} + ${h.hit} vs AC ${e.ac}: you slash for ${short(ev.dmg)}`, c: ev.res === 'crit' ? 'crit' : 'good'});
+      }
+      hud();
+    });
+  } else {
+    arena.enemyStrike(ev.res, f.dur * .9, () => {
+      if (ev.res === 'dodge') { floater('DODGE', 'dodge', 'hero'); fightLog.push({t: `🎲 ${e.name} rolls ${ev.roll} + ${e.hit} vs your AC ${h.ac}: you dodge`}); }
+      else {
+        f.hhp = ev.hhp; floater('-' + short(ev.dmg), 'hurt', 'hero');
+        fightLog.push({t: `🎲 ${e.name} rolls ${ev.roll} + ${e.hit} vs your AC ${h.ac}: ${ev.res === 'crit' ? 'crushing blow, ' : ''}you take ${short(ev.dmg)}`, c: 'bad'});
+      }
+      hud();
+    });
+  }
+  setTimeout(nextEvent, ms);
+}
+function finishFight(skipped) {
+  const f = fight; if (!f) return; fight = null;
+  const R = S.rpg, e = f.e, win = f.res.win;
+  if (win) {
+    const loot = C.lootFor(e.stage);
+    R.mats.stone += loot.stones; R.inv.push(...loot.items); R.wins++;
+    const lootTxt = [`${loot.stones} empower stone${loot.stones > 1 ? 's' : ''}`, ...loot.items.map(it => `${C.RARITY[it.rarity]} ${C.BASES[it.base].n}`)].join(', ');
+    fightLog.push({t: `🏆 Victory over ${e.name}! Loot: ${lootTxt}.`, c: 'win'});
+    if (live()) { arena.enemyDie(); setTimeout(() => live() && arena.heroVictory(), 350); }
+    if (e.final) { R.victory = true; R.finalWins++; toast('🏆 Lord Cravings is defeated! The island is saved.'); }
+    else { R.stage++; toast(`🏆 Stage ${e.stage} cleared. Loot: ${lootTxt}`); }
+  } else {
+    R.wounded = true; R.losses++;
+    fightLog.push({t: f.res.timeout ? `😮‍💨 Out of stamina. ${e.name} outlasted you.` : `💀 ${e.name} defeated you.`, c: 'bad'});
+    fightLog.push({t: 'Your hero is wounded. Log any part of your routine to heal, then try again.', c: 'sys'});
+    if (live()) arena.heroFall();
+    toast(`Defeated by ${e.name}. Train up and heal with your routine.`);
+  }
+  aggCache = null; save();
+  setTimeout(() => { if (tab === 'hero') { rerender(); if (win && arena && !R.victory) setTimeout(() => { if (!fight && live()) { arena.setEnemy(sceneEnemy(enemyNow())); arena.resetPose(); } }, 1900); } }, skipped ? 0 : 400);
+}
+function skipFight() {
+  const f = fight; if (!f) return;
+  for (; f.i < f.res.events.length; f.i++) { const ev = f.res.events[f.i]; if (ev.t === 'h' && ev.ehp !== undefined) f.ehp = ev.ehp; if (ev.t === 'e' && ev.hhp !== undefined) f.hhp = ev.hhp; }
+  fightLog.push({t: '⏩ Skipped to the end.', c: 'sys'});
+  finishFight(true);
+}
+
+/* ----- Hero tab ----- */
+function itemCard(it, slot) {
+  if (!it) return `<div class="gear empty"><small>${C.SLOTS[slot]}</small><b>Empty</b></div>`;
+  const b = C.BASES[it.base], o = C.itemStats(it);
+  const parts = [];
+  if (o.dmg) parts.push(`${fmt(o.dmg, o.dmg % 1 ? 1 : 0)} dmg`);
+  if (o.hp) parts.push(`+${fmt(o.hp)} HP`);
+  if (o.ac) parts.push(`+${o.ac} AC`);
+  if (o.dr) parts.push(`${o.dr} DR`);
+  if (o.hit) parts.push(`+${o.hit} hit`);
+  const bon = Object.entries(it.bonus || {}).map(([k, v]) => `+${v} ${C.STATS[k].n}`).join(', ');
+  return `<div class="gear r-${it.rarity}"><small>${C.SLOTS[slot]}, tier ${b.tier}</small><b>${esc(C.itemName(it))}</b>
+    <span class="gstats">${parts.join(', ')}</span>${bon ? `<span class="gbonus">${C.RARITY[it.rarity]}: ${bon}</span>` : ''}
+    <button class="btn ghost small" data-act="refsel" data-slot="${slot}" ${it.ref >= 10 ? 'disabled' : ''}>${it.ref >= 10 ? 'Max +10' : 'Refine'}</button></div>`;
+}
+function refinePanel() {
+  if (!refineSlot) return '';
+  const R = S.rpg, it = itemBy(R.eq[refineSlot]); if (!it || it.ref >= 10) return '';
+  const base = C.REFINE_CHANCE[it.ref], p = Math.min(100, base + (refineOpts.blessed ? 15 : 0)), cost = C.refineCost(it.ref);
+  const canDrop = it.ref >= 5;
+  return `<div class="panel refine">
+    <div class="spread"><b>Refine ${esc(C.itemName(it))} to +${it.ref + 1}</b><button class="x" data-act="refclose" aria-label="Close">×</button></div>
+    <div class="chance"><span class="num">${p}%</span><small>success chance</small></div>
+    <p class="muted small" style="margin:0">Costs ${cost} PP and 1 empower stone (you have ${R.mats.stone}). ${canDrop ? 'If it fails, the item drops to +' + (it.ref - 1) + ' unless you use a guard scroll.' : 'If it fails, you keep the current level.'}</p>
+    <label class="chk"><input type="checkbox" data-ropt="blessed" ${refineOpts.blessed ? 'checked' : ''} ${R.mats.blessed ? '' : 'disabled'}> Use a blessed stone, +15% (you have ${R.mats.blessed})</label>
+    ${canDrop ? `<label class="chk"><input type="checkbox" data-ropt="guard" ${refineOpts.guard ? 'checked' : ''} ${R.mats.guard ? '' : 'disabled'}> Use a guard scroll, no level loss (you have ${R.mats.guard})</label>` : ''}
+    <button class="btn" data-act="refine" ${R.pp < cost || R.mats.stone < 1 ? 'disabled' : ''}>Refine for ${cost} PP</button>
+    ${lastRefine ? `<p class="refres">${lastRefine}</p>` : ''}
+  </div>`;
+}
 function vHero() {
-  const G = S.game, a = aggC(), hs = heroStats(a), st = S.settings, span = Math.max(.1, st.start - st.goal);
+  const R = S.rpg, a = aggC(), st = S.settings, span = Math.max(.1, st.start - st.goal);
   const p = Math.min(1, Math.max(0, a.lost / span)), form = Math.min(5, Math.floor(p * 5 + 1e-9));
   const nextKg = form < 5 ? span * (form + 1) / 5 : null;
-  const d = enemyDef(G.idx);
-  const shieldNote = d.final && shieldOn(d, a) ? '<div class="tip">Lord Cravings has a craving shield that blocks 90% of your damage. Break it in real life: reach a 7-day streak or lose 10 kg.</div>' : '';
-  const ups = UPS.map(u => {
-    const lv = G.up[u.id], c = upCost(u, lv);
-    return `<li class="shop-row"><div><b>${u.n} <span class="lv">Lv ${lv}</span></b><small>${u.d}</small></div>
-      <button class="btn small" data-act="buyup" data-id="${u.id}" data-cost="${c}" ${G.coins < c ? 'disabled' : ''}>${COIN} ${short(c)}</button></li>`;
+  const h = heroNow(), e = enemyNow();
+  const chance = R.victory ? 1 : C.winChance(h, e, 400), th = C.threat(chance), tips = R.victory ? [] : C.advice(h, e);
+  const tr = C.TRAITS[e.trait];
+  const statRows = Object.entries(C.STATS).map(([k, m]) => {
+    const v = R.stats[k], gear = h.stats[k] - v, c = C.statCost(v);
+    return `<li class="srow"><div><b>${m.n} <span class="num">${v}</span>${gear ? `<span class="gearb"> +${gear}</span>` : ''}</b><small>${m.d}</small></div>
+      <button class="btn small" data-act="stat" data-k="${k}" data-cost="${c}" ${R.pp < c ? 'disabled' : ''}>+1 for ${c} PP</button></li>`;
   }).join('');
-  const items = COSM[armSlot].map(it => {
-    const own = !!G.owned[armSlot + '_' + it.id], eq = G.eq[armSlot] === it.id, locked = it.req && !reqMet(it.req, a);
+  const bag = R.inv.filter(it => !Object.values(R.eq).includes(it.uid));
+  const bagRows = bag.map(it => {
+    const b = C.BASES[it.base], bon = Object.entries(it.bonus || {}).map(([k, v]) => `+${v} ${C.STATS[k].n}`).join(', ');
+    return `<li class="shop-row r-${it.rarity}"><div><b>${esc(C.itemName(it))}</b><small>${C.SLOTS[b.slot]}, tier ${b.tier}, ${C.RARITY[it.rarity]}${bon ? `: ${bon}` : ''}</small></div>
+      <div class="row"><button class="btn small" data-act="equipi" data-uid="${it.uid}">Equip</button><button class="btn ghost small" data-act="salvage" data-uid="${it.uid}">Salvage</button></div></li>`;
+  }).join('');
+  const shop = Object.entries(C.SHOP).map(([k, it]) => `<li class="shop-row"><div><b>${it.n} <span class="lv">×${R.mats[k]}</span></b><small>${it.d}</small></div>
+    <button class="btn small" data-act="buymat" data-k="${k}" data-cost="${it.cost}" ${R.pp < it.cost ? 'disabled' : ''}>${it.cost} PP</button></li>`).join('');
+  const ward = WARD[wardSlot].map(it => {
+    const own = !!R.ward.owned[wardSlot + '_' + it.id], eq = R.ward.eq[wardSlot] === it.id, locked = it.req && !reqMet(it.req, a);
     let btn;
     if (eq) btn = '<span class="eqd">Equipped</span>';
-    else if (own) btn = `<button class="btn ghost small" data-act="equip" data-slot="${armSlot}" data-id="${it.id}">Equip</button>`;
+    else if (own) btn = `<button class="btn ghost small" data-act="wear" data-slot="${wardSlot}" data-id="${it.id}">Wear</button>`;
     else if (locked) btn = `<span class="muted small lockt">🔒 ${reqText(it.req)}</span>`;
-    else btn = `<button class="btn small" data-act="buyc" data-slot="${armSlot}" data-id="${it.id}" data-cost="${it.cost}" ${G.coins < it.cost ? 'disabled' : ''}>${it.cost ? `${COIN} ${short(it.cost)}` : 'Claim'}</button>`;
+    else btn = `<button class="btn small" data-act="buyw" data-slot="${wardSlot}" data-id="${it.id}" data-cost="${it.cost}" ${R.pp < it.cost ? 'disabled' : ''}>${it.cost ? `${it.cost} PP` : 'Claim'}</button>`;
     const sw = it.glow !== undefined ? `<span class="swatch" style="--sw:#${it.glow.toString(16).padStart(6, '0')};--sb:#${it.body.toString(16).padStart(6, '0')}"></span>` : '';
     return `<li class="shop-row"><div class="row">${sw}<b>${it.n}</b></div>${btn}</li>`;
   }).join('');
+  const eDmg = Math.max(1, Math.round(e.dmg - h.dr));
   return `<section class="arena">
     <div id="stage3d" class="stage3d"></div>
     <div class="hud">
-      <div class="hud-top"><div><div class="zone" id="hZone"></div><div class="wave" id="hWave"></div></div><div class="coins" id="hCoins"></div></div>
+      <div class="hud-top"><div><div class="zone" id="hZone"></div><div class="wave" id="hWave"></div></div><div class="pills"><div class="energy" id="hPP"></div></div></div>
       <div class="ebox"><div class="spread"><b id="eName"></b><span id="eHpTxt" class="num"></span></div><div class="hpbar enemy"><i id="eHp"></i></div></div>
       <div class="hbox"><div class="spread"><b>You</b><span id="hHpTxt" class="num"></span></div><div class="hpbar mine"><i id="hHp"></i></div></div>
     </div>
     <div id="floaters"></div>
   </section>
-  <div class="arena-ctl"><p id="aStatus" class="muted small">${statusText()}</p>
-    ${G.victory ? '<button class="btn small" data-act="ngplus">Start New Game+</button>' : G.farm ? '<button class="btn ghost small" data-act="push">Push now</button>' : ''}</div>
-  ${shieldNote}
-  ${G.prestige ? `<p class="muted small">New Game+ ${G.prestige}: enemies ×${fmt(3 ** G.prestige)}, your power ×${fmt(2 ** G.prestige)}.</p>` : ''}
+  ${R.victory ? `<div class="panel opp win"><b>🏆 You defeated Lord Cravings.</b><p class="muted small">Start New Game+ to replay all 50 stages with stronger enemies. You keep your stats and gear.</p><button class="btn engage" data-act="ngplus">Start New Game+</button></div>` : `
+  <div class="panel opp">
+    <div class="spread"><div><b class="oname">${esc(e.name)}</b><small class="muted">Stage ${e.stage} of 50${e.boss ? ', zone boss' : ''}${R.ng ? `, New Game+ ${R.ng}` : ''}</small></div><span class="threat ${th.c}">${th.n}</span></div>
+    <div class="ostats"><span>HP <b class="num">${short(e.hp)}</b></span><span>AC <b class="num">${e.ac}</b></span><span>Hits you for <b class="num">~${short(eDmg)}</b></span><span>Armor <b class="num">${e.dr}</b></span></div>
+    <p class="trait"><b>${tr.n}.</b> ${tr.d}</p>
+    ${tips.length ? `<ul class="tips">${tips.map(t => `<li>${t}</li>`).join('')}</ul>` : '<p class="muted small" style="margin:0">Your build looks suited for this fight.</p>'}
+    ${fight ? '<button class="btn ghost engage" data-act="skipfight">Skip to result</button>'
+      : R.wounded ? '<button class="btn engage" disabled>Wounded</button><p class="muted small" style="margin:8px 0 0">Your hero needs to heal. Log a meal, walk, water, workout or weigh-in, and you can engage again.</p>'
+      : '<button class="btn engage" data-act="engage">Engage</button>'}
+  </div>`}
+  <ul class="flog" id="fightLog"></ul>
+
   <h2>Your hero</h2>
   <div class="panel stack">
-    <div><div class="form-name">${FORMS[form]} form</div>
-    <div class="muted small">${nextKg !== null ? `Form ${form + 1} of 6. Next form at ${fmt(nextKg, 1)} kg lost (${fmt(Math.max(0, nextKg - a.lost), 1)} kg to go).` : 'Final form unlocked. You reached your goal.'}</div></div>
+    <div class="spread"><div><div class="form-name">${FORMS[form]} form</div>
+    <div class="muted small">${nextKg !== null ? `Next form at ${fmt(nextKg, 1)} kg lost (${fmt(Math.max(0, nextKg - a.lost), 1)} kg to go).` : 'Final form unlocked.'}</div></div>
+    <div class="ppbig"><span class="num">${short(R.pp)}</span><small>PP</small></div></div>
     <div class="forms">${FORMS.map((f, i) => `<button class="formchip ${i <= form ? 'got' : ''}" data-act="preview" data-st="${i}">${i <= form ? '' : '🔒 '}${f}</button>`).join('')}</div>
-    <p class="muted small" style="margin:0">Your hero slims down as you lose weight in real life and bulks up as you log workouts and personal bests. Tap a form to preview it. Drag the 3D view to turn it.</p>
+    <p class="muted small" style="margin:0">Your hero’s body follows your real weight loss and training. Tap a form to preview it. Drag the 3D view to turn it.</p>
   </div>
-  <div class="stats4">
-    <div class="stat"><small>Attack</small><b class="num">${short(hs.atk)}</b><small>Workouts, personal bests, protein days</small></div>
-    <div class="stat"><small>Max HP</small><b class="num">${short(hs.hp)}</b><small>Protein, perfect days, kg lost, weigh-ins</small></div>
-    <div class="stat"><small>Speed</small><b class="num">${hs.spd.toFixed(2)}/s</b><small>Walks and thrusters</small></div>
-    <div class="stat"><small>Discipline</small><b class="num">×${hs.disc.toFixed(1)}</b><small>Your real streak boosts attack</small></div>
+  <div class="derived">
+    <div><small>Damage</small><b class="num">${fmt(h.dmg, 0)}</b></div><div><small>HP</small><b class="num">${fmt(h.hp)}</b></div>
+    <div><small>Armor class</small><b class="num">${h.ac}</b></div><div><small>Accuracy</small><b class="num">+${h.hit}</b></div>
+    <div><small>Crit on</small><b class="num">${h.crit === 20 ? '20' : `${h.crit}–20`}</b></div><div><small>Damage reduction</small><b class="num">${h.dr}</b></div>
+    <div><small>Double strike</small><b class="num">${Math.round(h.dbl * 100)}%</b></div><div><small>Win record</small><b class="num">${R.wins}–${R.losses}</b></div>
   </div>
-  <h2>Upgrades</h2>
-  <ul class="shop">${ups}</ul>
-  <h2>Armory</h2>
-  <div class="seg" role="tablist">${Object.keys(COSM).map(k => `<button role="tab" aria-selected="${k === armSlot}" data-act="armslot" data-slot="${k}">${SLOTNAMES[k]}</button>`).join('')}</div>
-  <ul class="shop">${items}</ul>
-  <p class="muted small">Coins come from battles and from real life: every XP you earn on Today, Train and Progress gives your hero ${COINS_PER_XP} coins. Coins are in-game only and can’t be bought with real money.</p>`;
+  <h2>Attributes</h2>
+  <ul class="shop">${statRows}</ul>
+  <h2>Equipment</h2>
+  <div class="gearrow">${Object.keys(C.SLOTS).map(sl => itemCard(itemBy(R.eq[sl]), sl)).join('')}</div>
+  ${refinePanel()}
+  <h2>Bag</h2>
+  ${bagRows ? `<ul class="shop">${bagRows}</ul>` : '<p class="muted small">Gear you win drops here. Stage 5 of each zone drops an item, and zone bosses drop a better tier.</p>'}
+  <h2>Shop</h2>
+  <ul class="shop">${shop}</ul>
+  <h2>Wardrobe</h2>
+  <div class="seg" role="tablist">${Object.keys(WARD).map(k => `<button role="tab" aria-selected="${k === wardSlot}" data-act="wardslot" data-slot="${k}">${WARD_NAMES[k]}</button>`).join('')}</div>
+  <ul class="shop">${ward}</ul>
+  <p class="muted small">Progress points (PP) come only from your real routine: every XP you earn on Today, Train and Progress gives 1 PP. A full day is about 150 PP. Battles don’t give PP, they give stones and gear.</p>`;
 }
-setInterval(gameTick, 100);
 
 /* ---------- Actions ---------- */
 const num = id => parseFloat(($('#' + id) || {}).value);
@@ -817,10 +844,10 @@ function act(a, ds) {
   switch (a) {
     case 'prev': off = Math.min(off + 1, 60); break;
     case 'next': off = Math.max(off - 1, 0); break;
-    case 'eat': { const d = day(k, true), m = d.meals[ds.slot] || (d.meals[ds.slot] = {done: false, v: 0}); m.done = !m.done; if (m.done) toast('+10 XP'); break; }
+    case 'eat': { const d = day(k, true), m = d.meals[ds.slot] || (d.meals[ds.slot] = {done: false, v: 0}); m.done = !m.done; if (m.done) toast('+10 XP, +10 PP'); break; }
     case 'swap': { const d = day(k, true), m = d.meals[ds.slot] || (d.meals[ds.slot] = {done: false, v: 0}); m.v = ((m.v || 0) + 1) % opts(ds.slot, fromKey(k)).length; break; }
-    case 'walk': { const d = day(k, true); d.walk = !d.walk; if (d.walk) toast('👟 +20 XP'); break; }
-    case 'strength': { const d = day(k, true); d.strength = !d.strength; if (d.strength) toast('🏋️ +20 XP'); break; }
+    case 'walk': { const d = day(k, true); d.walk = !d.walk; if (d.walk) toast('👟 +20 XP, +20 PP'); break; }
+    case 'strength': { const d = day(k, true); d.strength = !d.strength; if (d.strength) toast('🏋️ +20 XP, +20 PP'); break; }
     case 'water': { const d = day(k, true), n = +ds.n; d.water = d.water === n ? n - 1 : n; if (d.water === 8) toast('💧 Water goal hit, +10 XP'); break; }
     case 'addq': { const f = (ds.src === 'f' ? S.foods : QUICK)[+ds.i]; if (!f) return; day(k, true).extras.push({t: f.t, k: f.k, p: f.p}); break; }
     case 'addc': {
@@ -881,32 +908,62 @@ function act(a, ds) {
       S.exercises = S.exercises.filter(e => e.id !== ds.ex);
       for (const r of Object.keys(S.routines)) S.routines[r].ids = S.routines[r].ids.filter(id => id !== ds.ex);
       break;
-    case 'buyup': {
-      const u = UPS.find(x => x.id === ds.id), G = S.game, lv = G.up[u.id], c = upCost(u, lv);
-      if (G.coins < c) { toast('Not enough coins yet.'); return; }
-      G.coins -= c; G.up[u.id]++; toast(`${u.n} upgraded to level ${G.up[u.id]}`); break;
+    case 'engage': engage(); return;
+    case 'skipfight': skipFight(); return;
+    case 'stat': {
+      const R = S.rpg, c = C.statCost(R.stats[ds.k]);
+      if (R.pp < c) { toast('Not enough PP yet. Log your routine to earn more.'); return; }
+      R.pp -= c; R.stats[ds.k]++; toast(`${C.STATS[ds.k].full} raised to ${R.stats[ds.k]}`); break;
     }
-    case 'buyc': {
-      const G = S.game, it = COSM[ds.slot].find(x => x.id === ds.id); if (!it) return;
+    case 'refsel': refineSlot = ds.slot; refineOpts = {blessed: false, guard: false}; lastRefine = ''; break;
+    case 'refclose': refineSlot = null; lastRefine = ''; break;
+    case 'refine': {
+      const R = S.rpg, it = itemBy(R.eq[refineSlot]); if (!it || it.ref >= 10) return;
+      const cost = C.refineCost(it.ref);
+      if (R.pp < cost || R.mats.stone < 1) { toast('You need more PP or empower stones.'); return; }
+      const opts = {blessed: refineOpts.blessed && R.mats.blessed > 0, guard: refineOpts.guard && R.mats.guard > 0 && it.ref >= 5};
+      R.pp -= cost; R.mats.stone--; if (opts.blessed) R.mats.blessed--; if (opts.guard) R.mats.guard--;
+      const before = it.ref, r = C.rollRefine(it.ref, opts); it.ref = r.ref;
+      lastRefine = r.ok ? `✨ Success! ${esc(C.BASES[it.base].n)} is now +${it.ref}.` : r.dropped ? `💥 Failed. ${esc(C.BASES[it.base].n)} dropped from +${before} to +${it.ref}.` : `💥 Failed. ${esc(C.BASES[it.base].n)} stays at +${it.ref}.${opts.guard ? ' Your guard scroll protected it.' : ''}`;
+      if (live()) arena.refineFx(r.ok);
+      toast(r.ok ? `✨ Refine succeeded: +${it.ref}` : '💥 Refine failed');
+      refineOpts = {blessed: false, guard: false};
+      break;
+    }
+    case 'buymat': {
+      const R = S.rpg, it = C.SHOP[ds.k];
+      if (R.pp < it.cost) { toast('Not enough PP yet.'); return; }
+      R.pp -= it.cost; R.mats[ds.k]++; toast(`Bought 1 ${it.n.toLowerCase()}`); break;
+    }
+    case 'equipi': {
+      const R = S.rpg, it = itemBy(ds.uid); if (!it) return;
+      R.eq[C.BASES[it.base].slot] = it.uid; refineSlot = null; toast(`Equipped ${C.itemName(it)}`); break;
+    }
+    case 'salvage': {
+      const R = S.rpg, it = itemBy(ds.uid); if (!it) return;
+      const gain = C.BASES[it.base].tier + (it.rarity === 'rare' ? 2 : it.rarity === 'magic' ? 1 : 0) + Math.floor(it.ref / 2);
+      if (!confirm(`Salvage ${C.itemName(it)} for ${gain} empower stone${gain > 1 ? 's' : ''}?`)) return;
+      R.inv = R.inv.filter(x => x.uid !== it.uid); R.mats.stone += gain; toast(`Salvaged for ${gain} empower stone${gain > 1 ? 's' : ''}`); break;
+    }
+    case 'buyw': {
+      const R = S.rpg, it = WARD[ds.slot].find(x => x.id === ds.id); if (!it) return;
       if (it.req && !reqMet(it.req, aggC())) { toast(reqText(it.req)); return; }
-      if (G.coins < it.cost) { toast('Not enough coins yet.'); return; }
-      G.coins -= it.cost; G.owned[ds.slot + '_' + it.id] = 1; G.eq[ds.slot] = it.id; toast(`${it.n} unlocked and equipped`); break;
+      if (R.pp < it.cost) { toast('Not enough PP yet.'); return; }
+      R.pp -= it.cost; R.ward.owned[ds.slot + '_' + it.id] = 1; R.ward.eq[ds.slot] = it.id; toast(`${it.n} unlocked`); break;
     }
-    case 'equip': S.game.eq[ds.slot] = ds.id; break;
-    case 'armslot': armSlot = ds.slot; break;
-    case 'preview': previewSt = +ds.st; previewUntil = Date.now() + 6000; toast(`Previewing your ${FORMS[previewSt]} form`); break;
-    case 'push': { const G = S.game; if (G.victory) return; G.farm = false; G.idx = Math.min(49, G.idx + 1); B.phase = 'spawn'; B.timer = .3; if (arena) arena.setEnemy(null); break; }
+    case 'wear': S.rpg.ward.eq[ds.slot] = ds.id; break;
+    case 'wardslot': wardSlot = ds.slot; break;
+    case 'preview': previewSt = +ds.st; previewUntil = Date.now() + 6000; toast(`Previewing your ${FORMS[previewSt]} form`); setTimeout(() => { if (live() && !fight) arena.setHero(heroCfg(aggC())); }, 6100); break;
     case 'ngplus': {
-      if (!confirm('Start New Game+? Enemies get 3× stronger, but you hit 2× harder and earn more coins. You keep your upgrades and armory.')) return;
-      const G = S.game; G.prestige++; G.idx = 0; G.best = 0; G.victory = false; G.farm = false; B.phase = 'spawn'; B.timer = .3; if (arena) arena.setEnemy(null);
-      toast(`New Game+ ${G.prestige} started`); break;
+      if (!confirm('Start New Game+? All 50 stages return with much stronger enemies. You keep your stats and gear.')) return;
+      const R = S.rpg; R.ng++; R.stage = 1; R.victory = false; R.wounded = false; toast(`New Game+ ${R.ng} started`); break;
     }
     case 'delx': day(k, true).extras.splice(+ds.i, 1); break;
     case 'weigh': {
       const kg = num('wKg');
       if (!(kg > 30 && kg < 400)) { toast('Enter your weight in kg, like 123.4'); return; }
       const tk = keyOf(today()); S.weights = S.weights.filter(w => w.d !== tk); S.weights.push({d: tk, kg: Math.round(kg * 10) / 10});
-      toast('⚖️ Weigh-in logged, +25 XP'); break;
+      toast('⚖️ Weigh-in logged, +25 XP, +25 PP'); break;
     }
     case 'delw': S.weights = S.weights.filter(w => w.d !== ds.d); break;
     case 'gro': S.grocery.checked[ds.id] = !S.grocery.checked[ds.id]; break;
@@ -943,7 +1000,7 @@ function act(a, ds) {
     case 'import': $('#importFile').click(); return;
     case 'wipe':
       if (!confirm('Erase all your Kusog data on this phone? This can’t be undone.')) return;
-      S = clone(DEF); off = 0; save(); render(); toast('All data erased'); return;
+      S = merge({}); off = 0; save(); render(); toast('All data erased'); return;
     default: return;
   }
   if (a === 'prev' || a === 'next') keepScroll = false;
@@ -997,6 +1054,7 @@ document.addEventListener('change', e => {
     R.ids = S.exercises.map(x => x.id).filter(id => set.has(id)); save(); rerender(); return;
   }
   if (t.id === 'painIn' && S.session) { S.session.pain = +t.value; save(); }
+  if (t.dataset.ropt) { refineOpts[t.dataset.ropt] = t.checked; rerender(); }
 });
 document.addEventListener('input', e => {
   if (e.target.id === 'painIn') { const v = $('#painVal'); if (v) v.textContent = e.target.value; }

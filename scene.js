@@ -38,7 +38,7 @@ export function buildAvatar(cfg) {
   if (st >= 3) { const core = mesh(new THREE.CylinderGeometry(.075, .075, .03, 20), acc, 0, 1.45, front + .01); core.rotation.x = Math.PI / 2; g.add(core); }
 
   g.add(mesh(new THREE.CylinderGeometry(.08 + .03 * f, .1 + .04 * f, .16, 12), skin, 0, 1.72, 0));
-  const head = new THREE.Group(); head.position.set(0, 1.93, 0); g.add(head); parts.head = head;
+  const head = new THREE.Group(); head.position.set(0, 1.93, 0); g.add(head); parts.head = head; parts.torsoY = 1.25;
   const hr = .2 + .02 * f;
   head.add(mesh(new THREE.SphereGeometry(hr, 20, 16), skin));
   head.add(mesh(new THREE.SphereGeometry(hr + .012, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2.3), std(HAIR, {metalness: 0, roughness: .9}), 0, .02, -.012));
@@ -75,7 +75,7 @@ export function buildAvatar(cfg) {
   }
 
   // Weapon in the LEFT hand (keeps the injured right arm free)
-  const w = new THREE.Group(); parts.handL.add(w);
+  const w = new THREE.Group(); parts.handL.add(w); parts.weapon = w;
   if (cfg.weapon === 'kettlebell') {
     const bell = mesh(new THREE.SphereGeometry(.16, 18, 14), std(0x20263a, {metalness: .8, roughness: .3}), 0, -.2, 0); w.add(bell);
     const band = mesh(new THREE.TorusGeometry(.16, .015, 6, 30), acc, 0, -.2, 0); band.rotation.x = Math.PI / 2; w.add(band);
@@ -86,8 +86,10 @@ export function buildAvatar(cfg) {
     w.add(mesh(new THREE.BoxGeometry(.37, .04, .21), acc, 0, .62, 0));
     w.rotation.x = .5;
   } else {
+    const gold = cfg.weapon === 'solar';
     w.add(mesh(new THREE.CylinderGeometry(.025, .025, .2, 10), dark, 0, .02, 0));
-    w.add(mesh(new THREE.BoxGeometry(.05, .85, .02), acc, 0, .55, 0));
+    w.add(mesh(new THREE.BoxGeometry(.16, .03, .05), gold ? glow(0xffd36b, 1.5) : dark, 0, .12, 0));
+    w.add(mesh(new THREE.BoxGeometry(gold ? .07 : .05, gold ? 1.0 : .85, .02), gold ? glow(0xffd36b, 2.6) : acc, 0, gold ? .63 : .55, 0));
     w.rotation.x = .6;
   }
 
@@ -221,7 +223,7 @@ export class Arena {
     this.dust = new THREE.Points(dg, new THREE.PointsMaterial({color: 0x8fdcff, size: .035, transparent: true, opacity: .55})); sc.add(this.dust);
 
     this.hero = null; this.heroKey = ''; this.enemy = null; this.enemyKey = '';
-    this.tweens = []; this.particles = []; this.az = .0; this.mounted = false; this.clock = new THREE.Clock();
+    this.tweens = []; this.particles = []; this.az = .0; this.shake = 0; this.mounted = false; this.clock = new THREE.Clock();
     this.loop = this.loop.bind(this);
 
     let drag = null;
@@ -258,32 +260,88 @@ export class Arena {
   }
   setShield(on) { if (this.enemy) this.enemy.userData.shield.visible = !!on; }
   tween(dur, fn) { this.tweens.push({t: 0, dur, fn}); }
-  heroAttack() {
+  // ---- Choreographed combat moves. Each takes a duration and calls onImpact at the moment of contact.
+  resetPose() {
     const h = this.hero; if (!h) return; const p = h.userData.parts;
-    this.tween(.32, k => {
-      const s = Math.sin(k * Math.PI);
-      h.position.x = HX + s * .55;
-      if (p.armL) p.armL.rotation.x = -s * 1.6;
+    h.position.set(HX, 0, 0); h.rotation.set(0, .55, 0);
+    if (p.armL) p.armL.rotation.set(0, 0, 0);
+  }
+  heroSlash(res, dur, onImpact) {
+    const h = this.hero, e = this.enemy; if (!h) { onImpact && onImpact(); return; }
+    const p = h.userData.parts, sh = p.armL, wp = p.weapon, w0 = wp ? (wp.userData.r0 ?? (wp.userData.r0 = wp.rotation.x)) : 0; let hit = false;
+    const ease = x => x < .5 ? 2 * x * x : 1 - (-2 * x + 2) ** 2 / 2;
+    const lerp = (a, b, k) => a + (b - a) * k;
+    this.tween(dur, k => {
+      if (k < .28) { // step in and wind up: blade raised high over the shoulder, body coils away
+        const t = ease(k / .28);
+        h.position.x = lerp(HX, HX + .8, t); h.rotation.y = lerp(.55, .2, t);
+        sh.rotation.x = lerp(0, -2.75, t); sh.rotation.z = lerp(0, .45, t);
+        if (wp) wp.rotation.x = lerp(w0, -.3, t);
+      } else if (k < .42) { // diagonal cut: shoulder drives down and across while the body uncoils
+        const t = (k - .28) / .14;
+        h.position.x = HX + .8 + t * .15; h.rotation.y = lerp(.2, 1.15, t);
+        sh.rotation.x = lerp(-2.75, -.35, t); sh.rotation.z = lerp(.45, -.55, t);
+        if (wp) wp.rotation.x = lerp(-.3, 1.7, t);
+        if (!hit && t > .55) { hit = true; onImpact && onImpact(); if (e) this.enemyReact(res); }
+      } else if (k < .58) { // follow-through, hold the finish
+        const t = (k - .42) / .16;
+        sh.rotation.x = lerp(-.35, -.15, t); h.rotation.y = 1.15;
+      } else { // recover to guard
+        const t = ease((k - .58) / .42);
+        h.position.x = lerp(HX + .95, HX, t); h.rotation.y = lerp(1.15, .55, t);
+        sh.rotation.x = lerp(-.15, 0, t); sh.rotation.z = lerp(-.55, 0, t);
+        if (wp) wp.rotation.x = lerp(1.7, w0, t);
+      }
     });
   }
-  enemyHit(crit) {
+  enemyReact(res) {
     const e = this.enemy; if (!e) return; const bs = e.userData.baseScale || 1;
-    this.hitLight.position.set(EX - .3, 1.2, .8); this.hitLight.color.set(crit ? 0xffd36b : 0xffffff); this.hitLight.intensity = crit ? 60 : 30;
-    this.tween(.18, k => { const s = Math.sin(k * Math.PI); e.position.x = EX + s * .12; e.scale.setScalar(bs * (1 - s * .06)); });
-    this.burst(new THREE.Vector3(EX - .3, 1.1, .2), crit ? 0xffd36b : 0x2ee6f0, crit ? 22 : 10);
+    if (res === 'miss') { // enemy sidesteps the blade
+      this.tween(.35, k => { const s = Math.sin(k * Math.PI); e.position.z = -s * .55; e.rotation.z = s * .25; });
+      return;
+    }
+    const crit = res === 'crit';
+    this.hitLight.position.set(EX - .3, 1.2, .8); this.hitLight.color.set(crit ? 0xffd36b : 0xffffff); this.hitLight.intensity = crit ? 70 : 32;
+    if (crit) this.shake = .12;
+    this.tween(.22, k => { const s = Math.sin(k * Math.PI); e.position.x = EX + s * (crit ? .3 : .14); e.rotation.z = -s * (crit ? .3 : .12); e.scale.setScalar(bs * (1 - s * .06)); });
+    this.burst(new THREE.Vector3(EX - .35, 1.1, .2), crit ? 0xffd36b : 0x2ee6f0, crit ? 26 : 12);
   }
-  enemyAttack() {
-    const e = this.enemy; if (!e) return;
-    this.tween(.3, k => { e.position.x = EX - Math.sin(k * Math.PI) * .45; });
+  enemyStrike(res, dur, onImpact) {
+    const e = this.enemy, h = this.hero; if (!e) { onImpact && onImpact(); return; }
+    let hit = false;
+    this.tween(dur, k => {
+      if (k < .3) { const t = k / .3; e.position.x = EX + t * .2; e.rotation.z = t * .2; }        // rear back
+      else if (k < .5) { const t = (k - .3) / .2; e.position.x = EX + .2 - t * 1.1; e.rotation.z = .2 - t * .45; // lunge
+        if (!hit && t > .6) { hit = true; onImpact && onImpact(); this.heroReact(res); } }
+      else { const t = (k - .5) / .5; e.position.x = EX - .9 + t * .9; e.rotation.z = -.25 * (1 - t); } // return
+    });
   }
-  heroHit() {
-    this.hitLight.position.set(HX + .1, 1.2, .8); this.hitLight.color.set(0xff3d5a); this.hitLight.intensity = 26;
-    const h = this.hero; if (h) this.tween(.18, k => { h.position.x = HX - Math.sin(k * Math.PI) * .1; });
+  heroReact(res) {
+    const h = this.hero; if (!h) return;
+    if (res === 'dodge') { // quick back-and-side step with a lean
+      this.tween(.4, k => { const s = Math.sin(k * Math.PI); h.position.x = HX - s * .3; h.position.z = s * .5; h.rotation.z = s * .22; h.rotation.y = .55 - s * .3; });
+      return;
+    }
+    this.hitLight.position.set(HX + .1, 1.2, .8); this.hitLight.color.set(0xff3d5a); this.hitLight.intensity = res === 'crit' ? 45 : 28;
+    if (res === 'crit') this.shake = .1;
+    this.tween(.3, k => { const s = Math.sin(k * Math.PI); h.position.x = HX - s * .22; h.rotation.x = -s * .18; });
+  }
+  heroFall() {
+    const h = this.hero; if (!h) return;
+    this.tween(.7, k => { h.position.y = -k * .32; h.rotation.x = k * .55; h.position.x = HX - k * .15; });
+  }
+  heroVictory() {
+    const h = this.hero; if (!h) return; const sh = h.userData.parts.armL;
+    this.tween(1.6, k => { const s = k < .3 ? k / .3 : k > .75 ? (1 - k) / .25 : 1; sh.rotation.x = -2.9 * s; sh.rotation.z = .2 * s; h.position.y = Math.sin(Math.min(1, k / .3) * Math.PI) * .12; });
+  }
+  refineFx(ok) {
+    this.burst(new THREE.Vector3(HX + .3, 1.2, .2), ok ? 0xffd36b : 0xff3d5a, ok ? 50 : 30);
+    this.hitLight.position.set(HX + .2, 1.4, .8); this.hitLight.color.set(ok ? 0xffd36b : 0xff3d5a); this.hitLight.intensity = 60;
   }
   enemyDie() {
     const e = this.enemy; if (!e) return; const bs = e.userData.baseScale || 1;
     this.burst(new THREE.Vector3(EX, 1, 0), 0xff3da8, 40); this.burst(new THREE.Vector3(EX, 1, 0), 0xffd36b, 20);
-    this.tween(.3, k => { e.scale.setScalar(bs * (1 - k)); e.rotation.y += .2; });
+    this.tween(.45, k => { e.scale.setScalar(bs * (1 - k)); e.rotation.y += .2; });
   }
   burst(pos, color, n) {
     const arr = new Float32Array(n * 3), vel = [];
@@ -304,13 +362,14 @@ export class Arena {
     if (document.hidden) return;
     const dt = Math.min(.05, this.clock.getDelta()), t = this.clock.elapsedTime;
     const aspect = this.camera.aspect, R = Math.min(12, Math.max(6, 2.25 / (Math.tan(THREE.MathUtils.degToRad(18)) * aspect)));
-    this.camera.position.set(Math.sin(this.az) * R, 2.1, Math.cos(this.az) * R); this.camera.lookAt(0.1, 1.0, 0);
+    const sx = this.shake ? (Math.random() - .5) * this.shake : 0, sy = this.shake ? (Math.random() - .5) * this.shake : 0; this.shake *= .85; if (this.shake < .005) this.shake = 0;
+    this.camera.position.set(Math.sin(this.az) * R + sx, 2.1 + sy, Math.cos(this.az) * R); this.camera.lookAt(0.1, 1.0, 0);
 
     this.tweens = this.tweens.filter(tw => { tw.t += dt; const k = Math.min(1, tw.t / tw.dur); tw.fn(k); return k < 1; });
     this.hitLight.intensity *= .86;
     if (this.hero) {
       const p = this.hero.userData.parts;
-      p.torso.scale.y = 1 + Math.sin(t * 2.2) * .015; p.head.position.y = 1.93 + Math.sin(t * 2.2) * .008;
+      p.torso.scale.y = 1 + Math.sin(t * 2.2) * .015;
       if (p.ring) p.ring.rotation.z += dt * .8;
       if (p.sparks) p.sparks.rotation.y += dt * .6;
       if (p.halo) p.halo.rotation.z += dt;
