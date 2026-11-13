@@ -159,10 +159,44 @@ td:first-child,th:first-child{text-align:left}
 
 /* Tabs */
 .tabs{position:fixed;left:0;right:0;bottom:0;background:var(--surface);border-top:1px solid var(--line);display:flex;justify-content:center;padding:6px 6px calc(6px + env(safe-area-inset-bottom,0px));z-index:5}
-.tabs button{flex:1;max-width:104px;border:0;background:none;padding:6px 2px;border-radius:14px;display:flex;flex-direction:column;align-items:center;gap:1px;color:var(--muted)}
+.tabs button{flex:1;max-width:90px;border:0;background:none;padding:6px 2px;border-radius:14px;display:flex;flex-direction:column;align-items:center;gap:1px;color:var(--muted)}
 .tabs span{font-size:22px;line-height:1.1}
 .tabs b{font-size:12px;font-weight:600}
 .tabs button[aria-current=page]{color:var(--ink);background:var(--surface2)}
+
+/* Train */
+.ex{background:var(--surface);border-radius:18px;padding:14px}
+.ex>b{display:block;font-size:17px}
+.ex small{display:block;margin-top:2px;font-size:14px}
+.last{margin-top:8px;padding:8px 10px;border-radius:10px;background:var(--surface2)}
+.sets{list-style:none;padding:0;margin:8px 0 0}
+.sets li{display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--line);padding:2px 0;font-size:15px}
+.setrow{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;margin-top:10px}
+.picks{display:grid;gap:10px}
+.pick{border:2px solid var(--line);background:var(--surface);border-radius:18px;padding:14px;text-align:left}
+.pick.next{border-color:var(--sea)}
+.pick b{display:block;font-size:17px}
+.pick small{color:var(--muted);display:block;margin-top:4px;font-size:14px}
+.tag{font-size:12px;font-weight:600;background:var(--sea);color:var(--surface);border-radius:999px;padding:2px 8px;margin-left:6px;vertical-align:middle}
+input[type=range]{width:100%;accent-color:var(--sea)}
+input[type=checkbox]{width:22px;height:22px;accent-color:var(--grass)}
+.rt td{vertical-align:middle}
+.rt td:not(:first-child),.rt th:not(:first-child){text-align:center;width:44px}
+
+/* Plan editor */
+details.panel{margin-top:10px}
+summary{font-weight:600;cursor:pointer;font-size:17px}
+details[open] summary{margin-bottom:8px}
+.edrow{display:grid;grid-template-columns:1fr 1fr auto;gap:6px;padding:10px 0;border-top:1px solid var(--line);align-items:center}
+.edrow>input[type=text]{grid-column:1/-1}
+.edn{display:flex;align-items:center;gap:4px}
+.edn span{font-size:13px;color:var(--muted)}
+.dayed{padding:12px 0;border-top:2px solid var(--line)}
+.lbl{font-size:13px;color:var(--muted);margin-top:8px}
+.warn{color:var(--danger);font-weight:600}
+select{width:100%;margin-top:6px;border:2px solid var(--line);background:var(--bg);border-radius:12px;padding:8px 10px;font:inherit;color:inherit}
+.chip.mine{background:color-mix(in srgb,var(--sea) 16%,var(--surface))}
+.chk{grid-column:1/-1;display:flex;gap:8px;align-items:center;font-size:14px;color:var(--muted)}
 
 /* Toast */
 #toast{position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom,0px));transform:translate(-50%,20px);opacity:0;pointer-events:none;background:var(--ink);color:var(--bg);padding:12px 18px;border-radius:16px;font-weight:600;max-width:calc(100% - 32px);text-align:center;transition:opacity .25s,transform .25s;z-index:20}
@@ -174,10 +208,11 @@ td:first-child,th:first-child{text-align:left}
 <main id="app"></main>
 <nav class="tabs" aria-label="Sections">
   <button data-tab="today"><span>🍽️</span><b>Today</b></button>
+  <button data-tab="train"><span>🏋️</span><b>Train</b></button>
   <button data-tab="progress"><span>📈</span><b>Progress</b></button>
   <button data-tab="groceries"><span>🧺</span><b>Market</b></button>
   <button data-tab="badges"><span>🏅</span><b>Badges</b></button>
-  <button data-tab="settings"><span>⚙️</span><b>Settings</b></button>
+  <button data-tab="settings"><span>⚙️</span><b>More</b></button>
 </nav>
 <div id="toast" role="status" aria-live="polite"></div>
 <input type="file" id="importFile" accept="application/json,.json" hidden>
@@ -216,9 +251,24 @@ const ROT = {
 };
 const SLOTS = [['breakfast', 'Breakfast'], ['lunch', 'Lunch'], ['snack', 'Post-workout snack'], ['dinner', 'Dinner']];
 const opts = (slot, date) => {
-  const r = ROT[date.getDay()];
-  return slot === 'breakfast' ? BREAKFAST : slot === 'snack' ? SNACK : slot === 'lunch' ? [r.l] : [r.d];
+  const P = S.plan, r = P.rot[date.getDay()];
+  return slot === 'breakfast' ? P.breakfast : slot === 'snack' ? P.snack : slot === 'lunch' ? [r.l] : [r.d];
 };
+const EX_DEF = [
+  {id: 'goblet', n: 'Goblet squat', note: 'Hold the weight at your chest. Only if holding it with both hands is pain-free; otherwise do bodyweight squats.'},
+  {id: 'suitcase', n: 'Suitcase deadlift (left hand)', note: 'Weight at your left side. Hinge at the hips and stand tall without leaning.'},
+  {id: 'stepup', n: 'Step-ups (weight in left hand)', note: 'Use a sturdy step at knee height or lower. Do both legs.'},
+  {id: 'rowL', n: 'One-arm row (left)', note: 'Hinge forward. Rest your right hand on your knee only if that’s pain-free.'},
+  {id: 'bridge', n: 'Glute bridge', note: 'Squeeze at the top for a second. Rest a dumbbell on your hips with your left hand to make it harder.'},
+  {id: 'deadbug', n: 'Dead bug', note: 'Slow and controlled, lower back on the floor. Move the right arm only if it’s pain-free.'},
+  {id: 'lunge', n: 'Reverse lunge (weight in left hand)', note: 'Step back, lower gently, drive up through the front heel. Do both legs.'},
+  {id: 'kbrdl', n: 'One-arm kettlebell RDL (left)', note: 'Soft knees, push your hips back, keep your back flat.'},
+  {id: 'pressL', n: 'One-arm floor press (left)', note: 'Lie on the floor and press up with the left arm. The floor protects your shoulder.'},
+  {id: 'carry', n: 'Suitcase carry (left)', note: 'Walk tall for 20–30 m without leaning. Log seconds as reps.'},
+  {id: 'wallsit', n: 'Wall sit', note: 'Go only as low as is comfortable. Log seconds as reps.'},
+  {id: 'calf', n: 'Calf raises', note: 'Hold a weight in your left hand once bodyweight gets easy.'}
+];
+const ROUT_DEF = {A: {name: 'Workout A', ids: ['goblet', 'suitcase', 'stepup', 'rowL', 'bridge', 'deadbug']}, B: {name: 'Workout B', ids: ['lunge', 'kbrdl', 'pressL', 'carry', 'wallsit', 'calf']}};
 const QUICK = [
   {t: 'Boiled egg', k: 72, p: 6}, {t: 'Scoop of whey', k: 120, p: 24}, {t: 'Lakatan banana', k: 90, p: 1},
   {t: '½ cup rice', k: 100, p: 2}, {t: 'Can of tuna in water', k: 140, p: 28}, {t: 'Papaya slice', k: 60, p: 1},
@@ -235,7 +285,8 @@ const GROC = [
 
 /* ---------- State ---------- */
 const KEY = 'kusog_v1';
-const DEF = {settings: {kcal: 1800, protein: 140, start: 125, goal: 100, budget: 9200}, days: {}, weights: [], grocery: {week: '', checked: {}}, spend: [], badges: {}, lastLevel: null};
+const DEF = {settings: {kcal: 1800, protein: 140, start: 125, goal: 100, budget: 9200}, days: {}, weights: [], grocery: {week: '', checked: {}}, spend: [], badges: {}, lastLevel: null,
+  plan: {breakfast: BREAKFAST, snack: SNACK, rot: ROT}, foods: [], exercises: EX_DEF, routines: ROUT_DEF, workouts: [], session: null};
 const clone = o => JSON.parse(JSON.stringify(o));
 function load() {
   try {
@@ -299,6 +350,9 @@ function agg() {
   if (!stat(keyOf(d)).goal) d = addDays(d, -1);
   while (stat(keyOf(d)).goal) { a.streak++; d = addDays(d, -1); }
   a.weighIns = S.weights.length;
+  a.workouts = S.workouts.length;
+  a.prs = S.workouts.reduce((t, w) => t + (w.prs || 0), 0);
+  a.xp += a.prs * 10;
   a.xp += a.weighIns * 25;
   a.lost = Math.max(0, S.settings.start - currentWeight());
   return a;
@@ -326,6 +380,9 @@ const BADGES = [
   {id: 'kg5', ic: '🏔️', n: 'Five down', d: 'Lose 5 kg', key: 'lost', need: 5},
   {id: 'kg10', ic: '🏔️', n: 'Ten down', d: 'Lose 10 kg', key: 'lost', need: 10},
   {id: 'kg20', ic: '🚩', n: 'Twenty down', d: 'Lose 20 kg', key: 'lost', need: 20},
+  {id: 'pr1', ic: '💪', n: 'Personal best', d: 'Beat your best set on any exercise', key: 'prs', need: 1},
+  {id: 'pr10', ic: '💪', n: 'Getting stronger', d: 'Set 10 personal bests', key: 'prs', need: 10},
+  {id: 'wo20', ic: '🏋️', n: 'Twenty workouts', d: 'Finish 20 logged workouts', key: 'workouts', need: 20},
   {id: 'goal', ic: '🏆', n: 'Summit', d: 'Reach your goal weight', key: 'lost', need: null}
 ];
 const needOf = b => b.need === null ? Math.max(0.1, S.settings.start - S.settings.goal) : b.need;
@@ -437,14 +494,19 @@ function vToday() {
     <div class="water"><div class="spread"><b>Water</b><span class="muted small num">${d.water}/8 glasses, +10 XP at 8</span></div><div class="drops">${drops}</div></div>
   </div>
   <h2>Extra food</h2>
-  <div class="chips">${QUICK.map((q, i) => `<button class="chip" data-act="addq" data-i="${i}">+ ${esc(q.t)}</button>`).join('')}</div>
+  <div class="chips">${quickChips()}</div>
   ${extras ? `<ul class="xlist">${extras}</ul>` : ''}
   <div class="custom">
     <input type="text" id="cName" placeholder="Other food" aria-label="Food name">
     <input type="number" id="cK" placeholder="kcal" inputmode="numeric" aria-label="Calories">
     <input type="number" id="cP" placeholder="protein g" inputmode="numeric" aria-label="Protein in grams">
+    <label class="chk"><input type="checkbox" id="cSave"> Save to My foods for next time</label>
     <button class="btn ghost" data-act="addc">Add food</button>
   </div>`;
+}
+function quickChips() {
+  return QUICK.map((q, i) => `<button class="chip" data-act="addq" data-src="q" data-i="${i}">+ ${esc(q.t)}</button>`).join('') +
+    S.foods.map((q, i) => `<button class="chip mine" data-act="addq" data-src="f" data-i="${i}">★ ${esc(q.t)}</button>`).join('');
 }
 
 function chartSVG(ws, goal) {
@@ -537,13 +599,130 @@ function vBadges() {
       ${on ? `<small>Unlocked ${niceDate(fromKey(S.badges[b.id]))}</small>` : `<div class="pbar"><i style="width:${(cur / need * 100).toFixed(0)}%"></i></div><small class="num">${fmt(cur, b.key === 'lost' ? 1 : 0)} / ${fmt(need, b.key === 'lost' ? 1 : 0)}</small>`}</div>`;
   }).join('')}</div>
   <h2>How XP works</h2>
-  <div class="panel small">Each meal you log: +10. Protein within 10 g of target: +30. Calories within 150 of target: +30. Walk: +20. Strength session: +20. 8 glasses of water: +10. Perfect day (all 4 meals, both targets, walk and water): +25 bonus. Weekly weigh-in: +25. Your streak counts days where you hit both calories and protein. Eating far below target doesn’t earn calorie XP, because under-eating slows recovery.</div>`;
+  <div class="panel small">Each meal you log: +10. Protein within 10 g of target: +30. Calories within 150 of target: +30. Walk: +20. Strength session: +20. 8 glasses of water: +10. Perfect day (all 4 meals, both targets, walk and water): +25 bonus. Weekly weigh-in: +25. Each exercise where you beat your best set: +10. Your streak counts days where you hit both calories and protein. Eating far below target doesn’t earn calorie XP, because under-eating slows recovery.</div>`;
 }
 
+/* ---------- Train ---------- */
+const exById = id => S.exercises.find(e => e.id === id);
+const kgTxt = kg => fmt(kg, kg % 1 ? 1 : 0);
+function fmtSets(sets) {
+  if (!sets || !sets.length) return '';
+  const one = s => `${s.r}${s.kg ? ` @ ${kgTxt(s.kg)} kg` : ''}`;
+  const same = sets.every(x => x.r === sets[0].r && x.kg === sets[0].kg);
+  return same ? `${sets.length} × ${one(sets[0])}${sets[0].kg ? '' : ' (bodyweight)'}` : sets.map(one).join(', ');
+}
+function lastSets(id) {
+  for (let i = S.workouts.length - 1; i >= 0; i--) { const w = S.workouts[i]; if (w.sets[id] && w.sets[id].length) return {d: w.d, sets: w.sets[id]}; }
+  return null;
+}
+function bestOf(id) {
+  let b = null;
+  for (const w of S.workouts) for (const x of (w.sets[id] || [])) if (!b || x.kg > b.kg || (x.kg === b.kg && x.r > b.r)) b = x;
+  return b;
+}
+function painTip() {
+  const P = S.workouts.filter(w => w.pain != null).map(w => w.pain);
+  if (!P.length) return '';
+  const l = P[P.length - 1];
+  if (l >= 6) return `<div class="tip">Your right arm pain was ${l}/10 last session. Skip anything that aggravates it, and get it checked by a doctor or physio before pushing harder.</div>`;
+  if (P.length >= 3 && P[P.length - 3] < P[P.length - 2] && P[P.length - 2] < l) return '<div class="tip">Your right arm pain has gone up three sessions in a row. Ease off whatever bothers it and get it checked.</div>';
+  return '';
+}
+function sessionView() {
+  const se = S.session, R = S.routines[se.r] || {name: 'Workout'};
+  const cards = se.ids.map(id => {
+    const e = exById(id); if (!e) return '';
+    const sets = se.sets[id] || [], L = lastSets(id);
+    const pre = sets[sets.length - 1] || (L && L.sets[0]) || {r: '', kg: ''};
+    return `<div class="ex"><b>${esc(e.n)}</b><small class="muted">${esc(e.note || '')}</small>
+      <div class="last small">${L ? `Last time (${niceDate(fromKey(L.d))}): ${fmtSets(L.sets)}` : 'First time: start light and focus on form.'}</div>
+      ${sets.length ? `<ol class="sets">${sets.map((x, i) => `<li><span>Set ${i + 1}: ${x.r} reps${x.kg ? ` × ${kgTxt(x.kg)} kg` : ''}</span><button class="x" data-act="delset" data-ex="${id}" data-i="${i}" aria-label="Remove set">×</button></li>`).join('')}</ol>` : ''}
+      <div class="setrow"><input type="number" id="r-${id}" inputmode="numeric" placeholder="Reps" value="${pre.r}" aria-label="Reps for ${esc(e.n)}"><input type="number" id="w-${id}" inputmode="decimal" step="0.5" placeholder="kg" value="${pre.kg ? pre.kg : ''}" aria-label="Weight in kg for ${esc(e.n)}"><button class="btn small" data-act="addset" data-ex="${id}">Add set</button></div>
+    </div>`;
+  }).join('');
+  const pain = se.pain == null ? 0 : se.pain;
+  return `<h2>${esc(R.name)}</h2><div class="stack">${cards}</div>
+  <div class="panel stack" style="margin-top:14px">
+    <label class="f" for="painIn">Right arm pain right now: <b id="painVal">${pain}</b>/10</label>
+    <input type="range" id="painIn" min="0" max="10" value="${pain}">
+    <div class="row"><button class="btn" data-act="finish">Finish workout</button><button class="btn ghost" data-act="cancelwo">Discard</button></div>
+  </div>`;
+}
+function vTrain() {
+  const W = S.workouts, last = W[W.length - 1], next = last && last.r === 'A' ? 'B' : 'A';
+  let h = `<h2 style="margin-top:20px">Train</h2>
+  <div class="tip" style="margin-top:0">These workouts keep weight off your right arm. Stop any movement that causes sharp or increasing pain, and get a doctor’s or physio’s OK when you can.</div>${painTip()}`;
+  if (S.session) h += sessionView();
+  else h += `<h2>Start a workout</h2><div class="picks">${['A', 'B'].map(r => {
+    const R = S.routines[r];
+    return `<button class="pick ${r === next ? 'next' : ''}" data-act="start" data-r="${r}"><b>${esc(R.name)}${r === next ? '<span class="tag">Up next</span>' : ''}</b><small>${R.ids.map(id => esc((exById(id) || {}).n || '')).filter(Boolean).join(', ') || 'No exercises yet. Add some under Edit workouts.'}</small></button>`;
+  }).join('')}</div>`;
+  const pains = W.filter(w => w.pain != null).slice(-5).map(w => w.pain);
+  const hist = W.map((w, i) => ({...w, i})).reverse().slice(0, 10).map(w => {
+    const n = Object.values(w.sets).reduce((t, x) => t + x.length, 0);
+    return `<li><span>${niceDate(fromKey(w.d))}, ${esc((S.routines[w.r] || {name: 'Workout'}).name)}<br><span class="muted small">${n} sets${w.pain != null ? `, arm pain ${w.pain}/10` : ''}${w.prs ? `, ${w.prs} personal best${w.prs > 1 ? 's' : ''}` : ''}</span></span><button class="x" data-act="delwo" data-i="${w.i}" aria-label="Delete workout">×</button></li>`;
+  }).join('');
+  h += `<h2>History</h2><div class="panel">${hist ? `${pains.length ? `<p class="muted small" style="margin:0 0 6px">Arm pain, last ${pains.length} sessions: ${pains.join(', ')}</p>` : ''}<ul class="xlist" style="margin:0">${hist}</ul>` : '<p class="muted small" style="margin:0">Finished workouts show up here.</p>'}</div>`;
+  h += `<details class="panel" id="d-routines"><summary>Edit workouts</summary>
+    <table class="rt"><tr><th>Exercise</th><th>A</th><th>B</th><th></th></tr>
+    ${S.exercises.map(e => `<tr><td>${esc(e.n)}</td>${['A', 'B'].map(r => `<td><input type="checkbox" data-rt="${r}" data-ex="${e.id}" ${S.routines[r].ids.includes(e.id) ? 'checked' : ''} aria-label="${esc(e.n)} in workout ${r}"></td>`).join('')}<td>${e.id.startsWith('c') ? `<button class="x" data-act="delex" data-ex="${e.id}" aria-label="Delete ${esc(e.n)}">×</button>` : ''}</td></tr>`).join('')}
+    </table>
+    <div class="stack" style="margin-top:12px">
+      <input type="text" id="exName" placeholder="New exercise name" aria-label="New exercise name">
+      <input type="text" id="exNote" placeholder="How to do it (optional)" aria-label="How to do it">
+      <button class="btn ghost" data-act="addex">Add exercise</button>
+    </div>
+  </details>`;
+  return h;
+}
+
+/* ---------- More: plan, foods, settings ---------- */
+const FULLDAY = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+function edRow(path, f, extra) {
+  return `<div class="edrow">
+    <input type="text" class="ed" data-path="${path}.t" value="${esc(f.t)}" aria-label="Food">
+    <div class="edn"><input type="number" class="ed" data-path="${path}.k" value="${f.k}" inputmode="numeric" aria-label="Calories"><span>kcal</span></div>
+    <div class="edn"><input type="number" class="ed" data-path="${path}.p" value="${f.p}" inputmode="numeric" aria-label="Protein"><span>g</span></div>
+    ${extra || '<span></span>'}
+  </div>`;
+}
+function dayTotal(dw) {
+  const P = S.plan, r = P.rot[dw];
+  return {k: P.breakfast[0].k + P.snack[0].k + r.l.k + r.d.k, p: P.breakfast[0].p + P.snack[0].p + r.l.p + r.d.p};
+}
 function vSettings() {
-  const st = S.settings;
+  const st = S.settings, P = S.plan;
   const f = (id, label, v, step) => `<div><label class="f" for="${id}">${label}</label><input type="number" id="${id}" value="${v}" step="${step || 1}" inputmode="decimal"></div>`;
-  return `<h2 style="margin-top:20px">Your targets</h2>
+  const sel = path => S.foods.length ? `<select data-fill="${path}" aria-label="Fill from My foods"><option value="">Fill from My foods…</option>${S.foods.map((x, i) => `<option value="${i}">${esc(x.t)}</option>`).join('')}</select>` : '';
+  const days = [1, 2, 3, 4, 5, 6, 0].map(dw => {
+    const t = dayTotal(dw), ok = Math.abs(t.k - st.kcal) <= 150 && t.p >= st.protein - 10;
+    return `<div class="dayed"><div class="spread"><b>${FULLDAY[dw]}</b><span class="small num ${ok ? 'muted' : 'warn'}">${fmt(t.k)} kcal, ${t.p} g</span></div>
+      <div class="lbl">Lunch</div>${edRow(`plan.rot.${dw}.l`, P.rot[dw].l)}${sel(dw + '.l')}
+      <div class="lbl">Dinner</div>${edRow(`plan.rot.${dw}.d`, P.rot[dw].d)}${sel(dw + '.d')}</div>`;
+  }).join('');
+  const optList = (list, label) => P[list].map((x, i) => edRow(`plan.${list}.${i}`, x, P[list].length > 1 ? `<button class="x" data-act="delopt" data-list="${list}" data-i="${i}" aria-label="Remove option">×</button>` : '')).join('') +
+    `<button class="btn ghost small" data-act="addopt" data-list="${list}" style="margin-top:8px">Add ${label} option</button>`;
+  return `<h2 style="margin-top:20px">Meal plan</h2>
+  <p class="muted small">Changes save as soon as you leave a field. The first option for breakfast and snack is the default; the Swap button on Today cycles through the rest.</p>
+  <details class="panel" id="d-week"><summary>Weekly lunch and dinner</summary>
+    <p class="muted small" style="margin:0">Day totals use your first breakfast and snack option. Aim for ${fmt(st.kcal)} kcal (±150) and at least ${st.protein - 10} g protein; totals outside that show in red.</p>
+    ${days}
+  </details>
+  <details class="panel" id="d-bfast"><summary>Breakfast options</summary>${optList('breakfast', 'breakfast')}</details>
+  <details class="panel" id="d-snack"><summary>Post-workout snack options</summary>${optList('snack', 'snack')}</details>
+  <div style="margin-top:10px"><button class="btn ghost small" data-act="resetplan">Reset meal plan to the original</button></div>
+  <h2>My foods</h2>
+  <details class="panel" id="d-foods" ${S.foods.length ? '' : 'open'}><summary>Saved foods (${S.foods.length})</summary>
+    <p class="muted small" style="margin:0">Foods you save here become ★ quick-add buttons on Today and can fill any lunch or dinner in your plan.</p>
+    ${S.foods.map((x, i) => edRow(`foods.${i}`, x, `<button class="x" data-act="delfood" data-i="${i}" aria-label="Delete ${esc(x.t)}">×</button>`)).join('')}
+    <div class="custom">
+      <input type="text" id="fName" placeholder="Food, e.g. carinderia pinakbet + rice" aria-label="Food name">
+      <input type="number" id="fK" placeholder="kcal" inputmode="numeric" aria-label="Calories">
+      <input type="number" id="fP" placeholder="protein g" inputmode="numeric" aria-label="Protein in grams">
+      <button class="btn ghost" data-act="addfood">Save food</button>
+    </div>
+  </details>
+  <h2>Your targets</h2>
   <div class="panel stack">
     <div class="grid2">
       ${f('sK', 'Daily calories', st.kcal)}${f('sP', 'Daily protein (g)', st.protein)}
@@ -561,9 +740,11 @@ function vSettings() {
   <div class="panel stack"><p class="muted small" style="margin:0">Erase all meals, weigh-ins, badges and settings from this phone.</p><button class="btn danger" data-act="wipe">Erase all data</button></div>`;
 }
 
-const VIEWS = {today: vToday, progress: vProgress, groceries: vGroceries, badges: vBadges, settings: vSettings};
+const VIEWS = {today: vToday, train: vTrain, progress: vProgress, groceries: vGroceries, badges: vBadges, settings: vSettings};
 function render() {
+  const open = [...document.querySelectorAll('details[open]')].map(d => d.id);
   $('#app').innerHTML = VIEWS[tab]();
+  open.forEach(id => { const el = document.getElementById(id); if (el) el.open = true; });
   document.querySelectorAll('.tabs button').forEach(b => { if (b.dataset.tab === tab) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
 }
 
@@ -581,12 +762,65 @@ function act(a, ds) {
     case 'walk': { const d = day(k, true); d.walk = !d.walk; if (d.walk) toast('👟 +20 XP'); break; }
     case 'strength': { const d = day(k, true); d.strength = !d.strength; if (d.strength) toast('🏋️ +20 XP'); break; }
     case 'water': { const d = day(k, true), n = +ds.n; d.water = d.water === n ? n - 1 : n; if (d.water === 8) toast('💧 Water goal hit, +10 XP'); break; }
-    case 'addq': day(k, true).extras.push({...QUICK[+ds.i]}); break;
+    case 'addq': { const f = (ds.src === 'f' ? S.foods : QUICK)[+ds.i]; if (!f) return; day(k, true).extras.push({t: f.t, k: f.k, p: f.p}); break; }
     case 'addc': {
       const t = ($('#cName').value || '').trim(), kc = num('cK'), p = num('cP') || 0;
       if (!t || !(kc >= 0)) { toast('Enter a food name and its calories.'); return; }
-      day(k, true).extras.push({t: t.slice(0, 60), k: Math.round(kc), p: Math.round(p)}); break;
+      const item = {t: t.slice(0, 60), k: Math.round(kc), p: Math.round(p)};
+      day(k, true).extras.push(item);
+      if ($('#cSave') && $('#cSave').checked && !S.foods.some(x => x.t.toLowerCase() === item.t.toLowerCase())) { S.foods.push({...item}); toast('Saved to My foods'); }
+      break;
     }
+    case 'addopt': S.plan[ds.list].push({t: 'New option', k: 0, p: 0}); break;
+    case 'delopt': if (S.plan[ds.list].length > 1) S.plan[ds.list].splice(+ds.i, 1); break;
+    case 'resetplan':
+      if (!confirm('Reset your meal plan to the original? Your saved foods stay.')) return;
+      S.plan = clone(DEF.plan); toast('Meal plan reset'); break;
+    case 'addfood': {
+      const t = ($('#fName').value || '').trim(), kc = num('fK'), p = num('fP') || 0;
+      if (!t || !(kc >= 0)) { toast('Enter a food name and its calories.'); return; }
+      S.foods.push({t: t.slice(0, 60), k: Math.round(kc), p: Math.round(p)}); toast('Saved to My foods'); break;
+    }
+    case 'delfood': S.foods.splice(+ds.i, 1); break;
+    case 'start': {
+      const R = S.routines[ds.r];
+      if (!R || !R.ids.length) { toast('Add exercises to this workout first.'); return; }
+      S.session = {r: ds.r, d: keyOf(today()), ids: [...R.ids], sets: {}, pain: null}; keepScroll = false; break;
+    }
+    case 'addset': {
+      const r = num('r-' + ds.ex), kg = num('w-' + ds.ex) || 0;
+      if (!(r > 0)) { toast('Enter how many reps (or seconds) you did.'); return; }
+      if (kg < 0 || kg > 300) { toast('Enter the weight in kg, or leave it blank.'); return; }
+      (S.session.sets[ds.ex] = S.session.sets[ds.ex] || []).push({r: Math.round(r), kg: Math.round(kg * 2) / 2}); break;
+    }
+    case 'delset': S.session.sets[ds.ex].splice(+ds.i, 1); break;
+    case 'finish': {
+      const se = S.session;
+      for (const id of Object.keys(se.sets)) if (!se.sets[id].length) delete se.sets[id];
+      if (!Object.keys(se.sets).length) { toast('Add at least one set first.'); return; }
+      const pin = $('#painIn'); se.pain = pin ? +pin.value : (se.pain || 0);
+      let prs = 0;
+      for (const [id, sets] of Object.entries(se.sets)) {
+        const b = bestOf(id);
+        if (b && sets.some(x => x.kg > b.kg || (x.kg === b.kg && x.r > b.r))) prs++;
+      }
+      S.workouts.push({d: se.d, r: se.r, sets: se.sets, pain: se.pain, prs});
+      day(se.d, true).strength = true; S.session = null; keepScroll = false;
+      toast(prs ? `💪 Workout saved. ${prs} personal best${prs > 1 ? 's' : ''}!` : '🏋️ Workout saved, strength session checked');
+      break;
+    }
+    case 'cancelwo': if (!confirm('Discard this workout? Sets you logged will be lost.')) return; S.session = null; break;
+    case 'delwo': if (!confirm('Delete this workout from your history?')) return; S.workouts.splice(+ds.i, 1); break;
+    case 'addex': {
+      const n = ($('#exName').value || '').trim();
+      if (!n) { toast('Enter an exercise name.'); return; }
+      S.exercises.push({id: 'c' + Date.now(), n: n.slice(0, 60), note: ($('#exNote').value || '').trim().slice(0, 140)}); break;
+    }
+    case 'delex':
+      if (!confirm('Delete this exercise? Past workouts keep their sets.')) return;
+      S.exercises = S.exercises.filter(e => e.id !== ds.ex);
+      for (const r of Object.keys(S.routines)) S.routines[r].ids = S.routines[r].ids.filter(id => id !== ds.ex);
+      break;
     case 'delx': day(k, true).extras.splice(+ds.i, 1); break;
     case 'weigh': {
       const kg = num('wKg');
@@ -643,6 +877,31 @@ $('#importFile').addEventListener('change', async e => {
     S = Object.assign(clone(DEF), d, {settings: Object.assign(clone(DEF.settings), d.settings)});
     save(); render(); toast('Backup restored');
   } catch (err) { toast('That file isn’t a Kusog backup. Pick the .json file you downloaded.'); }
+});
+function rerender() { const y = window.scrollY; render(); window.scrollTo(0, y); }
+document.addEventListener('change', e => {
+  const t = e.target;
+  if (t.classList.contains('ed')) {
+    const parts = t.dataset.path.split('.'), key = parts.pop();
+    let o = S; for (const q of parts) { o = o[q]; if (o == null) return; }
+    if (key === 't') { const v = t.value.trim(); if (!v) { t.value = o.t; toast('Name can’t be empty.'); return; } o.t = v.slice(0, 80); }
+    else { const v = Math.round(parseFloat(t.value)); if (!(v >= 0 && v <= 5000)) { t.value = o[key]; toast('Enter a number from 0 to 5,000.'); return; } o[key] = v; }
+    save(); rerender(); return;
+  }
+  if (t.dataset.fill) {
+    const f = S.foods[+t.value]; if (!f) return;
+    const [dw, sl] = t.dataset.fill.split('.');
+    S.plan.rot[dw][sl] = {t: f.t, k: f.k, p: f.p}; save(); rerender(); toast('Plan updated'); return;
+  }
+  if (t.dataset.rt) {
+    const R = S.routines[t.dataset.rt], set = new Set(R.ids);
+    if (t.checked) set.add(t.dataset.ex); else set.delete(t.dataset.ex);
+    R.ids = S.exercises.map(x => x.id).filter(id => set.has(id)); save(); rerender(); return;
+  }
+  if (t.id === 'painIn' && S.session) { S.session.pain = +t.value; save(); }
+});
+document.addEventListener('input', e => {
+  if (e.target.id === 'painIn') { const v = $('#painVal'); if (v) v.textContent = e.target.value; }
 });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) render(); });
 

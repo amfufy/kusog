@@ -1,5 +1,5 @@
 // Kusog Fit Quest offline cache. Bump VERSION whenever you change index.html.
-const VERSION = 'kusog-v1';
+const VERSION = 'kusog-v2';
 const FILES = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 
 self.addEventListener('install', e => {
