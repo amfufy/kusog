@@ -142,6 +142,9 @@ td:first-child,th:first-child{text-align:left}
 .gitem.on .gname{text-decoration:line-through;color:var(--muted)}
 .gitem small{display:block;color:var(--muted);font-size:13px}
 
+.gedrow{display:grid;grid-template-columns:1fr 1fr auto;gap:6px;padding:12px 16px;align-items:center}
+.gedrow>input:first-child{grid-column:1/-1}
+.gedrow .edn input{min-width:0}
 /* Badges */
 .badges{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px}
 .badge{background:var(--surface);border-radius:18px;padding:14px;text-align:center}
@@ -286,7 +289,8 @@ const GROC = [
 /* ---------- State ---------- */
 const KEY = 'kusog_v1';
 const DEF = {settings: {kcal: 1800, protein: 140, start: 125, goal: 100, budget: 9200}, days: {}, weights: [], grocery: {week: '', checked: {}}, spend: [], badges: {}, lastLevel: null,
-  plan: {breakfast: BREAKFAST, snack: SNACK, rot: ROT}, foods: [], exercises: EX_DEF, routines: ROUT_DEF, workouts: [], session: null};
+  plan: {breakfast: BREAKFAST, snack: SNACK, rot: ROT}, foods: [], exercises: EX_DEF, routines: ROUT_DEF, workouts: [], session: null,
+  groc: GROC.map((g, i) => ({id: 'g' + i, n: g[0], a: g[1], c: g[2]}))};
 const clone = o => JSON.parse(JSON.stringify(o));
 function load() {
   try {
@@ -561,13 +565,21 @@ function vProgress() {
   <p class="muted small" style="margin-bottom:0">Best streak: ${a.best} ${a.best === 1 ? 'day' : 'days'}. Perfect days: ${a.perfect}. Walks: ${a.walks}. Strength sessions: ${a.strength}.</p></div>`;
 }
 
+let groEdit = false;
 const weekKey = () => { const d = today(); const dow = (d.getDay() + 6) % 7; return keyOf(addDays(d, -dow)); };
 function vGroceries() {
   if (S.grocery.week !== weekKey()) { S.grocery = {week: weekKey(), checked: {}}; save(); }
-  const ch = S.grocery.checked;
-  const total = GROC.reduce((t, g) => t + g[2], 0), got = GROC.reduce((t, g, i) => t + (ch[i] ? g[2] : 0), 0);
-  const items = GROC.map((g, i) => `<li><button class="gitem ${ch[i] ? 'on' : ''}" data-act="gro" data-i="${i}" aria-pressed="${!!ch[i]}">
-    <span class="box">${ch[i] ? '✓' : ''}</span><span><span class="gname">${esc(g[0])}</span><small>${esc(g[1])}</small></span><span class="num">₱${fmt(g[2])}</span></button></li>`).join('');
+  const ch = S.grocery.checked, G = S.groc;
+  const total = G.reduce((t, g) => t + g.c, 0), got = G.reduce((t, g) => t + (ch[g.id] ? g.c : 0), 0);
+  const items = groEdit
+    ? G.map((g, i) => `<li class="gedrow">
+        <input type="text" class="ged" data-i="${i}" data-f="n" value="${esc(g.n)}" aria-label="Item name">
+        <input type="text" class="ged" data-i="${i}" data-f="a" value="${esc(g.a)}" aria-label="Amount">
+        <div class="edn"><span>₱</span><input type="number" class="ged" data-i="${i}" data-f="c" value="${g.c}" inputmode="decimal" aria-label="Price of ${esc(g.n)} in pesos"></div>
+        <button class="x" data-act="delgro" data-i="${i}" aria-label="Delete ${esc(g.n)}">×</button>
+      </li>`).join('')
+    : G.map(g => `<li><button class="gitem ${ch[g.id] ? 'on' : ''}" data-act="gro" data-id="${g.id}" aria-pressed="${!!ch[g.id]}">
+    <span class="box">${ch[g.id] ? '✓' : ''}</span><span><span class="gname">${esc(g.n)}</span><small>${esc(g.a)}</small></span><span class="num">₱${fmt(g.c)}</span></button></li>`).join('');
   const now = today(), mk = keyOf(now).slice(0, 7);
   const monthSpend = S.spend.filter(s => s.d.slice(0, 7) === mk);
   const spent = monthSpend.reduce((t, s) => t + s.amt, 0);
@@ -575,8 +587,16 @@ function vGroceries() {
   const left = S.settings.budget - spent;
   const sp = [...monthSpend].map((s, i) => ({...s, i: S.spend.indexOf(s)})).reverse().map(s => `<li><span>${niceDate(fromKey(s.d))}</span><span class="row"><b class="num">₱${fmt(s.amt)}</b><button class="x" data-act="delsp" data-i="${s.i}" aria-label="Delete entry">×</button></span></li>`).join('');
   return `<h2 style="margin-top:20px">Market list this week</h2>
-  <p class="muted small">Tap items as you buy them. The list resets every Monday. Prices are estimates, so adjust your spending below with what you actually paid.</p>
-  <ul class="glist">${items}</ul>
+  <div class="spread" style="margin-bottom:10px"><p class="muted small" style="margin:0">${groEdit ? 'Change any name, amount or price. Changes save as soon as you leave a field.' : 'Tap items as you buy them. Checks reset every Monday.'}</p>
+    <button class="btn ${groEdit ? '' : 'ghost'} small" data-act="groedit">${groEdit ? 'Done' : 'Edit prices'}</button></div>
+  <ul class="glist">${items || '<li class="muted small" style="padding:14px 16px">Your list is empty. Tap Edit prices to add items.</li>'}</ul>
+  ${groEdit ? `<div class="panel" style="margin-top:10px"><div class="custom">
+      <input type="text" id="gName" placeholder="New item" aria-label="New item name">
+      <input type="text" id="gAmt" placeholder="Amount" aria-label="Amount">
+      <input type="number" id="gCost" placeholder="₱" inputmode="decimal" aria-label="Price in pesos">
+      <button class="btn ghost" data-act="addgro">Add item</button>
+    </div>
+    <button class="btn ghost small" data-act="resetgro" style="margin-top:10px">Reset list to the original</button></div>` : ''}
   <div class="panel spread" style="margin-top:10px"><span>Bought so far</span><b class="num">₱${fmt(got)} of ~₱${fmt(total)}</b></div>
   <p class="muted small">On the bigger budget, add a tub of unflavored whey and a bag of rolled oats once a month.</p>
   <h2>Monthly food budget</h2>
@@ -829,7 +849,17 @@ function act(a, ds) {
       toast('⚖️ Weigh-in logged, +25 XP'); break;
     }
     case 'delw': S.weights = S.weights.filter(w => w.d !== ds.d); break;
-    case 'gro': S.grocery.checked[ds.i] = !S.grocery.checked[ds.i]; break;
+    case 'gro': S.grocery.checked[ds.id] = !S.grocery.checked[ds.id]; break;
+    case 'groedit': groEdit = !groEdit; if (!groEdit) toast('Market list saved'); break;
+    case 'delgro': if (!confirm(`Remove ${S.groc[+ds.i].n} from your list?`)) return; S.groc.splice(+ds.i, 1); break;
+    case 'addgro': {
+      const n = ($('#gName').value || '').trim(), c = num('gCost');
+      if (!n || !(c >= 0)) { toast('Enter the item name and its price.'); return; }
+      S.groc.push({id: 'g' + Date.now(), n: n.slice(0, 60), a: ($('#gAmt').value || '').trim().slice(0, 40), c: Math.round(c * 100) / 100}); break;
+    }
+    case 'resetgro':
+      if (!confirm('Reset the market list to the original items and prices?')) return;
+      S.groc = clone(DEF.groc); S.grocery.checked = {}; toast('Market list reset'); break;
     case 'spend': {
       const amt = num('spAmt');
       if (!(amt > 0)) { toast('Enter how much you spent.'); return; }
@@ -886,6 +916,13 @@ document.addEventListener('change', e => {
     let o = S; for (const q of parts) { o = o[q]; if (o == null) return; }
     if (key === 't') { const v = t.value.trim(); if (!v) { t.value = o.t; toast('Name can’t be empty.'); return; } o.t = v.slice(0, 80); }
     else { const v = Math.round(parseFloat(t.value)); if (!(v >= 0 && v <= 5000)) { t.value = o[key]; toast('Enter a number from 0 to 5,000.'); return; } o[key] = v; }
+    save(); rerender(); return;
+  }
+  if (t.classList.contains('ged')) {
+    const g = S.groc[+t.dataset.i], f = t.dataset.f; if (!g) return;
+    if (f === 'c') { const v = parseFloat(t.value); if (!(v >= 0 && v <= 100000)) { t.value = g.c; toast('Enter a price in pesos.'); return; } g.c = Math.round(v * 100) / 100; }
+    else if (f === 'n') { const v = t.value.trim(); if (!v) { t.value = g.n; toast('Name can’t be empty.'); return; } g.n = v.slice(0, 60); }
+    else g.a = t.value.trim().slice(0, 40);
     save(); rerender(); return;
   }
   if (t.dataset.fill) {
